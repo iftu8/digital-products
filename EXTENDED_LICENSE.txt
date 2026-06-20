@@ -1,0 +1,37 @@
+====================================================================
+🔴 RUBY TIER - EXTENDED COMMERCIAL LICENSE AGREEMENT 🔴
+====================================================================
+
+PRODUCT NAME: Ruby AI Enterprise Suite
+LICENSE TYPE: Extended Commercial & Agency License
+VALIDITY: Lifetime Access
+
+This document serves as the official Extended Commercial License Agreement for the "Ruby AI Enterprise Suite". By holding this license, the purchaser is granted premium, enterprise-level rights as detailed below.
+
+1. GRANTED RIGHTS (What you CAN do):
+--------------------------------------------------------------------
+As an Extended License holder, you are permitted to:
+[+] Commercial Use: Use the software, code, and algorithms for unlimited commercial projects.
+[+] Client Projects: Deploy this software for your clients and charge them for your services (ideal for AI Agencies and SaaS founders).
+[+] Modification: Fully edit, modify, and customize the source code to fit your business needs.
+[+] Monetization: Generate revenue, charge subscriptions, or sell outputs created by this engine.
+
+2. RESTRICTIONS (What you CANNOT do):
+--------------------------------------------------------------------
+To protect the premium value of this Ruby Tier product, the following actions are strictly prohibited:
+[-] No Reselling: You may NOT resell, redistribute, or sub-license the raw source code or this repository to any third party.
+[-] No Public Sharing: You may NOT share your access, license key, or make this codebase public on any platform.
+[-] No Cloning: You may NOT copy the code to create a direct competitor to the original product in a marketplace.
+
+3. LIABILITY & SUPPORT:
+--------------------------------------------------------------------
+[+] This software is provided "as is", without warranty of any kind, express or implied.
+[+] VIP Support: As a Ruby Tier client, you are entitled to priority updates and enterprise support regarding the core engine functionality.
+
+====================================================================
+By utilizing this software, you agree to these premium terms. 
+Unauthorized distribution will result in immediate license revocation 
+and potential legal action.
+====================================================================
+Copyright © 2026 | Elite Digital Asset 
+All Rights Reserved.
