@@ -45,5 +45,4 @@ Built for seamless integration into your professional workflow.
 ### Step 1: Initialize the Environment
 Clone this exclusive repository to your local machine:
 ```bash
-git clone [https://github.com/iftu8/digital-products.git](https://github.com/iftu8/digital-products.git)
-cd digital-products
+git clone https://github.com/iftu8/digital-products.git
