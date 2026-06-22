@@ -30,8 +30,8 @@ jobs:
               return;
             }
 
-            // Sothik ebong current model: gemini-1.5-flash
-            const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${process.env.GEMINI_API_KEY}`;
+            // Updated to the latest valid model: gemini-3.5-flash
+            const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash:generateContent?key=${process.env.GEMINI_API_KEY}`;
 
             try {
               const response = await fetch(url, {
@@ -53,7 +53,6 @@ jobs:
 
               const aiReply = data.candidates[0].content.parts[0].text;
 
-              // GitHub issue-te reply post kora
               await github.rest.issues.createComment({
                 owner: context.repo.owner,
                 repo: context.repo.repo,
