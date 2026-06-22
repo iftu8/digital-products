@@ -2,7 +2,7 @@ name: Generate Smart AI Reply
 
 on:
   issue_comment:
-    types: [created] # Issue-te keu comment korle eta automatic run hobe
+    types: [created]
 
 jobs:
   process-ai-reply:
@@ -17,7 +17,6 @@ jobs:
       - name: Process Input & Call Gemini API
         uses: actions/github-script@v7
         env:
-          # GitHub Secret theke safe vabe key ta neya hocche
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
         with:
           script: |
@@ -31,8 +30,8 @@ jobs:
               return;
             }
 
-            // Apnar error dur korar jonno sothik model name 'gemini-1.5-flash' use kora hoyeche
-            const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${process.env.GEMINI_API_KEY}`;
+            // Model name change kore 'gemini-pro' kora hoyeche jate 404 error na ase
+            const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-pro:generateContent?key=${process.env.GEMINI_API_KEY}`;
             
             try {
               const response = await fetch(url, {
@@ -54,10 +53,8 @@ jobs:
                 throw new Error(`API Error! Status: ${response.status}`);
               }
 
-              // Gemini API theke response text ber kora
               const aiReply = data.candidates[0].content.parts[0].text;
 
-              // GitHub issue-te automatic comment create kora
               await github.rest.issues.createComment({
                 owner: context.repo.owner,
                 repo: context.repo.repo,
