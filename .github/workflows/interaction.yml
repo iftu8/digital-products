@@ -1,32 +1,56 @@
-name: Interaction API Automation
+name: Gemini AI Interaction Bot
 
 on:
   issues:
     types: [opened]
-  pull_request:
-    types: [opened]
 
 permissions:
   issues: write
-  pull_requests: write
 
 jobs:
-  respond:
+  gemini-reply:
     runs-on: ubuntu-latest
     steps:
-      - name: Auto Respond
+      - name: Generate and Post AI Reply
         uses: actions/github-script@v7
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
         with:
           script: |
-            const isIssue = context.payload.issue;
-            const issueNumber = isIssue ? context.payload.issue.number : context.payload.pull_request.number;
-            const user = isIssue ? context.payload.issue.user.login : context.payload.pull_request.user.login;
-            
-            const message = `Hi @${user}! 👋\n\nThank you for interacting with this repository! Our automated Interaction API has successfully logged your request.`;
-            
-            await github.rest.issues.createComment({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              issue_number: issueNumber,
-              body: message
-            });
+            const issueTitle = context.payload.issue.title;
+            const issueBody = context.payload.issue.body || "No description provided.";
+            const user = context.payload.issue.user.login;
+
+            // API Key চেক করা
+            const apiKey = process.env.GEMINI_API_KEY;
+            if (!apiKey) {
+              console.log("Error: API Key missing");
+              return;
+            }
+
+            // Gemini-কে নির্দেশনা (Prompt) দেওয়া
+            const prompt = `You are a helpful AI assistant managing a GitHub repository. A user named @${user} opened an issue titled: "${issueTitle}". The description is: "${issueBody}". Write a friendly, helpful, and concise response thanking them and addressing their issue.`;
+
+            try {
+              // Gemini AI-এর কাছে ডেটা পাঠানো
+              const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                  contents: [{ parts: [{ text: prompt }] }]
+                })
+              });
+
+              const data = await res.json();
+              const aiReply = data.candidates[0].content.parts[0].text;
+
+              // GitHub Issue-তে অটোমেটিক কমেন্ট করা
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: context.payload.issue.number,
+                body: aiReply
+              });
+            } catch (error) {
+              console.error("Gemini API Error: ", error);
+            }
