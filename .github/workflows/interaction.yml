@@ -21,18 +21,15 @@ jobs:
             const issueBody = context.payload.issue.body || "No description provided.";
             const user = context.payload.issue.user.login;
 
-            // API Key চেক করা
             const apiKey = process.env.GEMINI_API_KEY;
             if (!apiKey) {
-              console.log("Error: API Key missing");
+              console.log("Error: API Key missing in GitHub Secrets!");
               return;
             }
 
-            // Gemini-কে নির্দেশনা (Prompt) দেওয়া
-            const prompt = `You are a helpful AI assistant managing a GitHub repository. A user named @${user} opened an issue titled: "${issueTitle}". The description is: "${issueBody}". Write a friendly, helpful, and concise response thanking them and addressing their issue.`;
+            const prompt = `You are a helpful AI assistant managing a GitHub repository. A user named @${user} opened an issue titled: "${issueTitle}". The description is: "${issueBody}". Write a friendly, helpful, and concise response thanking them and answering their query.`;
 
             try {
-              // Gemini AI-এর কাছে ডেটা পাঠানো
               const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
@@ -42,15 +39,27 @@ jobs:
               });
 
               const data = await res.json();
-              const aiReply = data.candidates[0].content.parts[0].text;
+              
+              // ১. যদি API Key ভুল থাকে বা কোনো Error আসে, তবে এখানে ধরা পড়বে
+              if (data.error) {
+                console.error("🚨 Gemini API Error Details:\n", JSON.stringify(data.error, null, 2));
+                return; 
+              }
 
-              // GitHub Issue-তে অটোমেটিক কমেন্ট করা
-              await github.rest.issues.createComment({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                issue_number: context.payload.issue.number,
-                body: aiReply
-              });
+              // ২. যদি সফলভাবে রিপ্লাই জেনারেট হয়
+              if (data.candidates && data.candidates.length > 0) {
+                const aiReply = data.candidates[0].content.parts[0].text;
+
+                await github.rest.issues.createComment({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  issue_number: context.payload.issue.number,
+                  body: aiReply
+                });
+                console.log("✅ Successfully posted the AI reply!");
+              } else {
+                console.error("⚠️ No AI reply generated. Raw data:\n", JSON.stringify(data, null, 2));
+              }
             } catch (error) {
-              console.error("Gemini API Error: ", error);
+              console.error("Fetch Request Failed: ", error);
             }
