@@ -1,92 +1,72 @@
-name: Ultimate Gemini AI Bot
+name: Generate Smart AI Reply
 
 on:
-  issues:
-    types: [opened]
   issue_comment:
-    types: [created]
-
-permissions:
-  issues: write
-
-# একাধিক অ্যাকশন একসাথে ক্র্যাশ করা ঠেকাতে Concurrency
-concurrency:
-  group: ${{ github.workflow }}-${{ github.event.issue.number }}
-  cancel-in-progress: false
+    types: [created] # Issue-te keu comment korle eta automatic run hobe
 
 jobs:
-  ai-response:
-    name: Generate Smart AI Reply
+  process-ai-reply:
     runs-on: ubuntu-latest
-    
-    # বট যেন নিজের কমেন্টের রিপ্লাই দিয়ে লুপ তৈরি না করে
-    if: github.event.sender.type != 'Bot'
-
+    permissions:
+      issues: write
+      pull-requests: write
     steps:
-      - name: 🤖 Process Input & Call Gemini API
+      - name: Set up job
+        run: echo "Starting GitHub Action workflow..."
+
+      - name: Process Input & Call Gemini API
         uses: actions/github-script@v7
         env:
+          # GitHub Secret theke safe vabe key ta neya hocche
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
         with:
           script: |
-            const apiKey = process.env.GEMINI_API_KEY;
-            if (!apiKey) {
-              core.setFailed("❌ GEMINI_API_KEY GitHub Secrets-এ পাওয়া যায়নি!");
-              return;
-            }
-
-            // ইভেন্টটি কি নতুন ইস্যু নাকি কোনো কমেন্ট, তা চেক করা
-            const isComment = !!context.payload.comment;
-            const issueTitle = context.payload.issue.title;
-            const issueBody = context.payload.issue.body || "No description provided.";
-            const username = context.payload.sender.login;
+            const issueNumber = context.issue.number;
+            const commentBody = context.payload.comment.body;
             
-            // স্মার্ট প্রম্পট (AI-কে তার কাজ বুঝিয়ে দেওয়া)
-            let prompt = `You are a professional, friendly, and helpful AI assistant for a GitHub repository named "digital-products".\n\n`;
+            console.log(`Processing Comment on Issue: #${issueNumber}`);
             
-            if (isComment) {
-              const commentBody = context.payload.comment.body;
-              console.log(`Processing Comment on Issue: #${context.issue.number}`);
-              prompt += `User @${username} replied to the issue "${issueTitle}".\n`;
-              prompt += `User's Comment: "${commentBody}"\n\n`;
-              prompt += `Please provide a helpful and context-aware reply to this comment. Use markdown and emojis to make it engaging.`;
-            } else {
-              console.log(`Processing New Issue: ${issueTitle}`);
-              prompt += `User @${username} opened a new issue titled "${issueTitle}".\n`;
-              prompt += `Issue Description: "${issueBody}"\n\n`;
-              prompt += `Please analyze the issue (is it a bug, feature request, or question?) and provide a welcoming, helpful response. Suggest solutions if possible. Use markdown and emojis.`;
-            }
-
-            // Gemini 1.5 Flash মডেলে রিকোয়েস্ট পাঠানো
-            const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash-latest:generateContent?key=${apiKey}`, {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({
-                contents: [{ parts: [{ text: prompt }] }]
-              })
-            });
-
-            if (!response.ok) {
-              const errorData = await response.text();
-              core.setFailed(`❌ API Error: ${errorData}`);
+            if (!process.env.GEMINI_API_KEY) {
+              core.setFailed("Error: GEMINI_API_KEY khuje paoa jaini! GitHub Settings e Secrets add korun.");
               return;
             }
 
-            const data = await response.json();
-            const aiReply = data.candidates[0]?.content?.parts[0]?.text;
+            // Apnar error dur korar jonno sothik model name 'gemini-1.5-flash' use kora hoyeche
+            const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${process.env.GEMINI_API_KEY}`;
+            
+            try {
+              const response = await fetch(url, {
+                method: 'POST',
+                headers: {
+                  'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({
+                  contents: [{
+                    parts: [{ text: `You are an AI assistant. Please provide a smart response to this GitHub issue comment: ${commentBody}` }]
+                  }]
+                })
+              });
 
-            if (!aiReply) {
-              core.setFailed("❌ Gemini API থেকে কোনো উত্তর আসেনি!");
-              return;
+              const data = await response.json();
+              
+              if (!response.ok) {
+                console.error("API Error Details:", JSON.stringify(data, null, 2));
+                throw new Error(`API Error! Status: ${response.status}`);
+              }
+
+              // Gemini API theke response text ber kora
+              const aiReply = data.candidates[0].content.parts[0].text;
+
+              // GitHub issue-te automatic comment create kora
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: issueNumber,
+                body: aiReply
+              });
+              
+              console.log("AI Reply successfully posted to the issue!");
+
+            } catch (error) {
+              core.setFailed(`Workflow fail hoyeche: ${error.message}`);
             }
-
-            // উত্তরের নিচে একটি সুন্দর সিগনেচার যুক্ত করা
-            const finalReply = `${aiReply}\n\n---\n*🤖 This is an automated response generated by Gemini AI.*`;
-
-            // GitHub-এ রিপ্লাই পোস্ট করা
-            await github.rest.issues.createComment({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              issue_number: context.issue.number,
-              body: finalReply
-            });
