@@ -7,7 +7,6 @@ on:
 jobs:
   generate-code:
     runs-on: ubuntu-latest
-    # Ei workflow ta tokhoni cholbe jokhon issue er nam 'create-file:' diye shuru hobe
     if: startsWith(github.event.issue.title, 'create-file:')
     permissions:
       issues: write
@@ -29,7 +28,8 @@ jobs:
             // File er nam ta issue er title theke ber kore ana
             const fileName = issueTitle.replace('create-file:', '').trim();
 
-            const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${process.env.GEMINI_API_KEY}`;
+            // Ekhane updated model Gemini 3.5 use kora holo
+            const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash:generateContent?key=${process.env.GEMINI_API_KEY}`;
             
             const response = await fetch(url, {
               method: 'POST',
@@ -43,8 +43,8 @@ jobs:
 
             const data = await response.json();
             if (!response.ok) {
-              console.error(data);
-              throw new Error("API Error");
+              console.error("API Error Details:", JSON.stringify(data, null, 2));
+              throw new Error("API Error: Model issue ba onno kono problem.");
             }
             
             let generatedCode = data.candidates[0].content.parts[0].text;
