@@ -1,67 +1,69 @@
-name: Generate Smart AI Reply
+name: Auto Code Generator
 
 on:
-  issue_comment:
-    types: [created]
+  issues:
+    types: [opened]
 
 jobs:
-  process-ai-reply:
+  generate-code:
     runs-on: ubuntu-latest
+    # Ei workflow ta tokhoni cholbe jokhon issue er nam 'create-file:' diye shuru hobe
+    if: startsWith(github.event.issue.title, 'create-file:')
     permissions:
       issues: write
-      pull-requests: write
+      contents: write
     steps:
-      - name: Set up job
-        run: echo "Starting AI Action workflow..."
+      - name: Checkout code
+        uses: actions/checkout@v4
 
-      - name: "Process Input and Call Gemini API"
+      - name: Generate Code with AI
         uses: actions/github-script@v7
         env:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
         with:
           script: |
-            const issueNumber = context.issue.number;
-            const commentBody = context.payload.comment.body;
+            const fs = require('fs');
+            const issueTitle = context.payload.issue.title;
+            const issueBody = context.payload.issue.body || "Write the code for this.";
+            
+            // File er nam ta issue er title theke ber kore ana
+            const fileName = issueTitle.replace('create-file:', '').trim();
 
-            console.log(`Processing Comment on Issue: #${issueNumber}`);
+            const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${process.env.GEMINI_API_KEY}`;
+            
+            const response = await fetch(url, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                contents: [{
+                  parts: [{ text: `You are an expert programmer. Write the exact code for this request. DO NOT include markdown code blocks like \`\`\`python or any explanations. Return ONLY the raw code text so it can be directly saved into a file. Request: ${issueBody}` }]
+                }]
+              })
+            });
 
-            if (!process.env.GEMINI_API_KEY) {
-              core.setFailed("Error: API Key is missing in secrets.");
-              return;
+            const data = await response.json();
+            if (!response.ok) {
+              console.error(data);
+              throw new Error("API Error");
             }
+            
+            let generatedCode = data.candidates[0].content.parts[0].text;
+            
+            // Markdown tag thakle remove kore dewa
+            generatedCode = generatedCode.replace(/^```[a-z]*\n/i, '').replace(/```$/i, '');
 
-            // Updated to the latest valid model: gemini-3.5-flash
-            const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash:generateContent?key=${process.env.GEMINI_API_KEY}`;
+            // File ta toiri kora
+            fs.writeFileSync(fileName, generatedCode);
 
-            try {
-              const response = await fetch(url, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                  contents: [{
-                    parts: [{ text: `You are a helpful AI assistant. Please provide a smart, helpful reply to this GitHub issue comment:\n\nUser Comment: "${commentBody}"` }]
-                  }]
-                })
-              });
+            // GitHub Issue te comment kora
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+              body: `✅ Magic successful! AI apnar jnno \`${fileName}\` file ti auto-generate kore repository te add kore diyeche. Code tab e giye check korun!`
+            });
 
-              const data = await response.json();
-
-              if (!response.ok) {
-                console.error("API Error Details:", JSON.stringify(data, null, 2));
-                throw new Error(`Status ${response.status}: ${data.error?.message || 'Unknown API Error'}`);
-              }
-
-              const aiReply = data.candidates[0].content.parts[0].text;
-
-              await github.rest.issues.createComment({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                issue_number: issueNumber,
-                body: aiReply
-              });
-
-              console.log("Success: AI Reply posted!");
-
-            } catch (error) {
-              core.setFailed(`Workflow failed: ${error.message}`);
-            }
+      - name: Commit and Push changes
+        uses: stefanzweifel/git-auto-commit-action@v5
+        with:
+          commit_message: "Auto-generated file by AI"
