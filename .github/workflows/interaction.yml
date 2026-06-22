@@ -12,11 +12,12 @@ jobs:
       pull-requests: write
     steps:
       - name: Set up job
-        run: echo "Starting AI Action..."
+        run: echo "Starting AI Action workflow..."
 
-      - name: Process Input & Call Gemini API
+            - name: Process Input & Call Gemini API
         uses: actions/github-script@v7
         env:
+          # Direct key er bodole ekhane amra GitHub secret use korbo
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
         with:
           script: |
@@ -26,11 +27,11 @@ jobs:
             console.log(`Processing Comment on Issue: #${issueNumber}`);
             
             if (!process.env.GEMINI_API_KEY) {
-              core.setFailed("Error: GEMINI_API_KEY not found in secrets.");
+              core.setFailed("Error: API Key is missing.");
               return;
             }
 
-            // Ekhane ekdom sothik ebong supported model use kora hoyeche
+            // Sothik ebong current model: gemini-1.5-flash
             const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${process.env.GEMINI_API_KEY}`;
             
             try {
@@ -53,6 +54,7 @@ jobs:
 
               const aiReply = data.candidates[0].content.parts[0].text;
 
+              // GitHub issue-te reply post kora
               await github.rest.issues.createComment({
                 owner: context.repo.owner,
                 repo: context.repo.repo,
