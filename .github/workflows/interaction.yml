@@ -12,7 +12,7 @@ jobs:
       pull-requests: write
     steps:
       - name: Set up job
-        run: echo "Starting GitHub Action workflow..."
+        run: echo "Starting AI Action..."
 
       - name: Process Input & Call Gemini API
         uses: actions/github-script@v7
@@ -26,22 +26,20 @@ jobs:
             console.log(`Processing Comment on Issue: #${issueNumber}`);
             
             if (!process.env.GEMINI_API_KEY) {
-              core.setFailed("Error: GEMINI_API_KEY khuje paoa jaini! GitHub Settings e Secrets add korun.");
+              core.setFailed("Error: GEMINI_API_KEY not found in secrets.");
               return;
             }
 
-            // Model name change kore 'gemini-pro' kora hoyeche jate 404 error na ase
-            const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-pro:generateContent?key=${process.env.GEMINI_API_KEY}`;
+            // Ekhane ekdom sothik ebong supported model use kora hoyeche
+            const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${process.env.GEMINI_API_KEY}`;
             
             try {
               const response = await fetch(url, {
                 method: 'POST',
-                headers: {
-                  'Content-Type': 'application/json'
-                },
+                headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
                   contents: [{
-                    parts: [{ text: `You are an AI assistant. Please provide a smart response to this GitHub issue comment: ${commentBody}` }]
+                    parts: [{ text: `You are an AI assistant. Please provide a smart, helpful, and concise response to this GitHub issue comment: "${commentBody}"` }]
                   }]
                 })
               });
@@ -50,7 +48,7 @@ jobs:
               
               if (!response.ok) {
                 console.error("API Error Details:", JSON.stringify(data, null, 2));
-                throw new Error(`API Error! Status: ${response.status}`);
+                throw new Error(`Status ${response.status}: ${data.error?.message || 'Unknown API Error'}`);
               }
 
               const aiReply = data.candidates[0].content.parts[0].text;
@@ -62,8 +60,8 @@ jobs:
                 body: aiReply
               });
               
-              console.log("AI Reply successfully posted to the issue!");
+              console.log("Success: AI Reply posted!");
 
             } catch (error) {
-              core.setFailed(`Workflow fail hoyeche: ${error.message}`);
+              core.setFailed(`Workflow failed: ${error.message}`);
             }
