@@ -14,39 +14,38 @@ jobs:
       - name: Set up job
         run: echo "Starting AI Action workflow..."
 
-            - name: Process Input & Call Gemini API
+      - name: "Process Input and Call Gemini API"
         uses: actions/github-script@v7
         env:
-          # Direct key er bodole ekhane amra GitHub secret use korbo
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
         with:
           script: |
             const issueNumber = context.issue.number;
             const commentBody = context.payload.comment.body;
-            
+
             console.log(`Processing Comment on Issue: #${issueNumber}`);
-            
+
             if (!process.env.GEMINI_API_KEY) {
-              core.setFailed("Error: API Key is missing.");
+              core.setFailed("Error: API Key is missing in secrets.");
               return;
             }
 
             // Sothik ebong current model: gemini-1.5-flash
             const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${process.env.GEMINI_API_KEY}`;
-            
+
             try {
               const response = await fetch(url, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
                   contents: [{
-                    parts: [{ text: `You are an AI assistant. Please provide a smart, helpful, and concise response to this GitHub issue comment: "${commentBody}"` }]
+                    parts: [{ text: `You are a helpful AI assistant. Please provide a smart, helpful reply to this GitHub issue comment:\n\nUser Comment: "${commentBody}"` }]
                   }]
                 })
               });
 
               const data = await response.json();
-              
+
               if (!response.ok) {
                 console.error("API Error Details:", JSON.stringify(data, null, 2));
                 throw new Error(`Status ${response.status}: ${data.error?.message || 'Unknown API Error'}`);
@@ -61,7 +60,7 @@ jobs:
                 issue_number: issueNumber,
                 body: aiReply
               });
-              
+
               console.log("Success: AI Reply posted!");
 
             } catch (error) {
