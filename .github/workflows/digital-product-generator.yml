@@ -1,0 +1,91 @@
+name: Advanced Digital Product Generator
+
+on:
+  issues:
+    types: [opened]
+
+jobs:
+  build-product:
+    runs-on: ubuntu-latest
+    # ইস্যুর নাম 'build-product:' দিয়ে শুরু হলে তবেই এই কাজ শুরু হবে
+    if: startsWith(github.event.issue.title, 'build-product:')
+    permissions:
+      issues: write
+      contents: write
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Generate Multi-file Project with AI
+        uses: actions/github-script@v7
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+        with:
+          script: |
+            const fs = require('fs');
+            const path = require('path');
+            const issueTitle = context.payload.issue.title;
+            const issueBody = context.payload.issue.body || "Create an advanced digital product.";
+            
+            // প্রজেক্টের ফোল্ডারের নাম ইস্যুর টাইটেল থেকে নেওয়া
+            const projectName = issueTitle.replace('build-product:', '').trim().replace(/[^a-zA-Z0-9-_]/g, '_');
+
+            // আপনার রিকোয়েস্ট অনুযায়ী Gemini 3.5 মডেল
+            const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash:generateContent?key=${process.env.GEMINI_API_KEY}`;
+            
+            const prompt = `You are an Expert Full-Stack Developer. The user wants an advanced extended digital product. 
+            Requirements: ${issueBody}.
+            You must use HTML, CSS, JavaScript, and Ruby.
+            CRITICAL INSTRUCTION: You MUST output ONLY a valid JSON array of objects. Do not write any markdown formatting, no explanations, no \`\`\`json blocks. Just the raw JSON.
+            Format exactly like this: [{"filename": "index.html", "content": "html code..."}, {"filename": "css/style.css", "content": "css code..."}, {"filename": "js/app.js", "content": "js code..."}, {"filename": "backend.rb", "content": "ruby code..."}]`;
+
+            const response = await fetch(url, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                contents: [{ parts: [{ text: prompt }] }]
+              })
+            });
+
+            const data = await response.json();
+            if (!response.ok) throw new Error("API Error: " + JSON.stringify(data));
+            
+            let outputText = data.candidates[0].content.parts[0].text;
+            
+            // AI যদি ভুল করে Markdown বসিয়ে দেয়, সেটা ক্লিন করা
+            outputText = outputText.replace(/^```json/i, '').replace(/^```/i, '').replace(/```$/i, '').trim();
+            
+            const files = JSON.parse(outputText);
+
+            // মেইন ফোল্ডার তৈরি
+            if (!fs.existsSync(projectName)){
+                fs.mkdirSync(projectName, { recursive: true });
+            }
+
+            let generatedFilesList = "";
+
+            // ফোল্ডার অনুযায়ী সবগুলো ফাইল তৈরি করা
+            for (const file of files) {
+              const fullPath = path.join(projectName, file.filename);
+              const dir = path.dirname(fullPath);
+              
+              if (!fs.existsSync(dir)){
+                fs.mkdirSync(dir, { recursive: true });
+              }
+              
+              fs.writeFileSync(fullPath, file.content);
+              generatedFilesList += `- \`${fullPath}\`\n`;
+            }
+
+            // গিটহাবে সাকসেস মেসেজ দেওয়া
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+              body: `🚀 **Digital Product Generated Successfully!**\n\nAI apnar requriements onujayi **${projectName}** namer ekta folder e nicher file gulo toiri koreche:\n\n${generatedFilesList}\n\nCode tab e giye check korun!`
+            });
+
+      - name: Commit and Push changes
+        uses: stefanzweifel/git-auto-commit-action@v5
+        with:
+          commit_message: "Auto-generated advanced digital product by AI"
