@@ -1,0 +1,263 @@
+import argparse
+import concurrent.futures
+import hashlib
+import logging
+import os
+import shutil
+import sys
+import time
+from pathlib import Path
+from typing import Dict, Set, Tuple
+
+# Setup structured logging configuration
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] %(threadName)s - %(message)s",
+    handlers=[
+        logging.StreamHandler(sys.stdout),
+        logging.FileHandler("directory_sync.log", encoding="utf-8")
+    ]
+)
+logger = logging.getLogger("DirectorySyncer")
+
+
+class DirectorySyncer:
+    """
+    A production-grade utility to synchronize two directories.
+    Features multi-threaded copying, MD5 state verification, 
+    and safe error recovery.
+    """
+
+    def __init__(self, source: str, destination: str, max_workers: int = 4, dry_run: bool = False):
+        self.source = Path(source).resolve()
+        self.destination = Path(destination).resolve()
+        self.max_workers = max_workers
+        self.dry_run = dry_run
+
+        # Validation checks
+        if not self.source.exists():
+            raise FileNotFoundError(f"Source directory does not exist: {self.source}")
+        if not self.source.is_dir():
+            raise NotADirectoryError(f"Source path is not a directory: {self.source}")
+        if self.source == self.destination:
+            raise ValueError("Source and destination directories cannot be the same.")
+        
+        # Prevent synchronizing parent into child to avoid infinite loops
+        if self.source in self.destination.parents:
+            raise ValueError("Destination directory cannot be a subdirectory of the source directory.")
+
+    @staticmethod
+    def calculate_sha256(file_path: Path) -> str:
+        """
+        Calculate SHA-256 hash of a file to determine if content differs.
+        Processes files in chunks to support extremely large files without memory exhaustion.
+        """
+        sha256_hash = hashlib.sha256()
+        try:
+            with open(file_path, "rb") as f:
+                # 64KB chunks
+                for byte_block in iter(lambda: f.read(65536), b""):
+                    sha256_hash.update(byte_block)
+            return sha256_hash.hexdigest()
+        except (PermissionError, FileNotFoundError) as e:
+            logger.error(f"Failed to read file for hashing: {file_path}. Error: {e}")
+            raise
+
+    def scan_directory(self, target_dir: Path) -> Dict[Path, Tuple[float, int, str]]:
+        """
+        Scans directory recursively and builds a map of relative file paths 
+        to their metadata (modification time, size, and SHA-256 hash).
+        """
+        metadata_map: Dict[Path, Tuple[float, int, str]] = {}
+        
+        # Generator for safe traversal
+        for root, _, files in os.walk(target_dir):
+            for file in files:
+                full_path = Path(root) / file
+                relative_path = full_path.relative_to(target_dir)
+                try:
+                    stat = full_path.stat()
+                    # We compute hashes only if size/mtime matches are insufficient, 
+                    # but for absolute robust sync, we compute them here.
+                    file_hash = self.calculate_sha256(full_path)
+                    metadata_map[relative_path] = (stat.st_mtime, stat.st_size, file_hash)
+                except Exception as e:
+                    logger.error(f"Error accessing metadata for {full_path}: {e}")
+                    
+        return metadata_map
+
+    def copy_file_task(self, rel_path: Path) -> bool:
+        """
+        Copies a single file from source to destination. Preserves metadata.
+        Creates parent directories on demand.
+        """
+        src_file = self.source / rel_path
+        dest_file = self.destination / rel_path
+
+        if self.dry_run:
+            logger.info(f"[DRY-RUN] Would copy: {src_file} -> {dest_file}")
+            return True
+
+        try:
+            # Ensure target directory exists
+            dest_file.parent.mkdir(parents=True, exist_ok=True)
+            
+            # Copy file with metadata preservation
+            shutil.copy2(src_file, dest_file)
+            logger.info(f"Successfully copied: {rel_path}")
+            return True
+        except Exception as e:
+            logger.error(f"Failed to copy {rel_path} to {dest_file}: {e}")
+            return False
+
+    def remove_file_task(self, rel_path: Path) -> bool:
+        """
+        Deletes a file from the destination directory.
+        """
+        dest_file = self.destination / rel_path
+
+        if self.dry_run:
+            logger.info(f"[DRY-RUN] Would delete: {dest_file}")
+            return True
+
+        try:
+            if dest_file.exists():
+                dest_file.unlink()
+                logger.info(f"Successfully deleted: {rel_path}")
+            return True
+        except Exception as e:
+            logger.error(f"Failed to delete {dest_file}: {e}")
+            return False
+
+    def clean_empty_directories(self, directory: Path):
+        """
+        Recursively removes empty directories in destination post-sync.
+        """
+        if self.dry_run:
+            return
+
+        for root, dirs, _ in os.walk(directory, topdown=False):
+            for dir_name in dirs:
+                dir_path = Path(root) / dir_name
+                try:
+                    # Only removes directory if completely empty
+                    if not any(dir_path.iterdir()):
+                        dir_path.rmdir()
+                        logger.info(f"Removed empty directory: {dir_path.relative_to(self.destination)}")
+                except Exception as e:
+                    logger.warning(f"Could not remove folder {dir_path}: {e}")
+
+    def sync(self) -> bool:
+        """
+        Executes complete high-performance sync process.
+        """
+        start_time = time.time()
+        logger.info(f"Starting synchronization process.")
+        logger.info(f"Source: {self.source}")
+        logger.info(f"Destination: {self.destination}")
+
+        if self.dry_run:
+            logger.info("!! Running in DRY RUN mode. No files will be modified !!")
+
+        # Create destination directory if it doesn't exist
+        if not self.destination.exists() and not self.dry_run:
+            self.destination.mkdir(parents=True, exist_ok=True)
+
+        # Scan both directories
+        logger.info("Scanning source directory structure...")
+        source_files = self.scan_directory(self.source)
+        logger.info(f"Found {len(source_files)} files in source.")
+
+        logger.info("Scanning destination directory structure...")
+        dest_files = self.scan_directory(self.destination)
+        logger.info(f"Found {len(dest_files)} files in destination.")
+
+        # Identify changes
+        files_to_copy: Set[Path] = set()
+        files_to_delete: Set[Path] = set()
+
+        # 1. Identify modified or new files
+        for rel_path, (src_mtime, src_size, src_hash) in source_files.items():
+            if rel_path not in dest_files:
+                files_to_copy.add(rel_path)
+            else:
+                _, dest_size, dest_hash = dest_files[rel_path]
+                # Compare sizes and SHA-256 content hashes
+                if src_size != dest_size or src_hash != dest_hash:
+                    files_to_copy.add(rel_path)
+
+        # 2. Identify redundant files to delete in destination
+        for rel_path in dest_files.keys():
+            if rel_path not in source_files:
+                files_to_delete.add(rel_path)
+
+        if not files_to_copy and not files_to_delete:
+            logger.info("Synchronization complete. Directories are already in sync.")
+            return True
+
+        logger.info(f"Queueing {len(files_to_copy)} copies/updates and {len(files_to_delete)} deletions.")
+
+        # Execute operations using ThreadPoolExecutor
+        success = True
+        with concurrent.futures.ThreadPoolExecutor(max_workers=self.max_workers, thread_name_prefix="SyncWorker") as executor:
+            # Dispatch Deletions first to free disk space
+            deletion_futures = {executor.submit(self.remove_file_task, path): path for path in files_to_delete}
+            # Dispatch Copies
+            copy_futures = {executor.submit(self.copy_file_task, path): path for path in files_to_copy}
+
+            # Collect results
+            for future in concurrent.futures.as_completed(deletion_futures):
+                path = deletion_futures[future]
+                try:
+                    if not future.result():
+                        success = False
+                except Exception as exc:
+                    logger.error(f"Deletion task generated an exception for {path}: {exc}")
+                    success = False
+
+            for future in concurrent.futures.as_completed(copy_futures):
+                path = copy_futures[future]
+                try:
+                    if not future.result():
+                        success = False
+                except Exception as exc:
+                    logger.error(f"Copy task generated an exception for {path}: {exc}")
+                    success = False
+
+        # Clean empty folders on destination
+        self.clean_empty_directories(self.destination)
+
+        elapsed = time.time() - start_time
+        logger.info(f"Sync complete in {elapsed:.2f} seconds. Status Success: {success}")
+        return success
+
+
+def main():
+    parser = argparse.ArgumentParser(
+        description="Production-grade multithreaded directory sync tool with SHA-256 verification."
+    )
+    parser.add_argument("--src", required=True, help="Path to the source directory")
+    parser.add_argument("--dest", required=True, help="Path to the destination directory")
+    parser.add_argument("--workers", type=int, default=4, help="Number of concurrent copy workers (default: 4)")
+    parser.add_argument("--dry-run", action="store_true", help="Perform simulation without executing file writes/deletes")
+
+    args = parser.parse_args()
+
+    try:
+        syncer = DirectorySyncer(
+            source=args.src, 
+            destination=args.dest, 
+            max_workers=args.workers, 
+            dry_run=args.dry_run
+        )
+        success = syncer.sync()
+        if not success:
+            logger.warning("Synchronization completed with errors. See sync log details.")
+            sys.exit(1)
+    except Exception as e:
+        logger.critical(f"Fatal error during initialization: {e}", exc_info=True)
+        sys.exit(2)
+
+
+if __name__ == "__main__":
+    main()
