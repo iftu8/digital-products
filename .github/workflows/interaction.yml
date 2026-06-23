@@ -24,19 +24,23 @@ jobs:
             const issueTitle = context.payload.issue.title;
             const issueBody = context.payload.issue.body || "";
             
-            // System prompt to force it to generate maximum output/code perfectly
-            const prompt = `You are an expert Python developer. Based on the following GitHub issue request, generate a fully functional, high-quality, and complete Python Snake Game code. Make sure to include all logic and maximize the output detail.\n\nIssue Title: ${issueTitle}\nIssue Description: ${issueBody}`;
-            
-            const apiKey = process.env.GEMINI_API_KEY;
-            if (!apiKey) {
-              core.setFailed("Error: GEMINI_API_KEY secret is missing! Please add it in Repository Settings -> Secrets.");
+            const rawApiKey = process.env.GEMINI_API_KEY;
+            if (!rawApiKey) {
+              core.setFailed("Error: GEMINI_API_KEY secret is missing in repository settings!");
               return;
             }
 
-            // Correct URL format to avoid 'Failed to parse URL' error
-            const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`;
+            // CRITICAL FIX 1: .trim() removes any invisible spaces or accidental newlines from the secret
+            const apiKey = rawApiKey.trim();
+
+            // CRITICAL FIX 2: Upgraded from 'v1beta' (experimental) to the rock-solid 'v1' stable production API
+            const url = `https://generativelanguage.googleapis.com/v1/models/gemini-1.5-flash:generateContent?key=${apiKey}`;
+
+            const prompt = `You are an expert Python developer. Based on the following GitHub issue request, write a fully functional, highly polished, and complete Python script. Do not provide mockups or partial snippets.\n\nIssue Title: ${issueTitle}\nIssue Description: ${issueBody}`;
 
             try {
+              console.log("Connecting to Google Gemini API (v1 Stable)...");
+              
               const response = await fetch(url, {
                 method: "POST",
                 headers: {
@@ -49,8 +53,37 @@ jobs:
                 })
               });
 
+              // CRITICAL FIX 3: Built-in Auto Fallback Engine so it never fails on a 404 again
               if (!response.ok) {
                 const errorText = await response.text();
+                console.warn(`Primary API call returned ${response.status}. Trying fallback options...`);
+                
+                if (response.status === 404) {
+                  console.log("Switching to fallback model alias 'gemini-1.5-flash-latest'...");
+                  const fallbackUrl = `https://generativelanguage.googleapis.com/v1/models/gemini-1.5-flash-latest:generateContent?key=${apiKey}`;
+                  
+                  const fallbackRes = await fetch(fallbackUrl, {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }] })
+                  });
+
+                  if (fallbackRes.ok) {
+                    const fallbackData = await fallbackRes.json();
+                    const fallbackText = fallbackData.candidates[0].content.parts[0].text;
+                    
+                    await github.rest.issues.createComment({
+                      owner: context.repo.owner,
+                      repo: context.repo.repo,
+                      issue_number: context.payload.issue.number,
+                      body: `### 🚀 Generated Python Solution:\n\n${fallbackText}`
+                    });
+                    
+                    console.log("Success: Code generated successfully using fallback model!");
+                    return;
+                  }
+                }
+
                 core.setFailed(`Gemini API Error: ${response.status} - ${errorText}`);
                 return;
               }
@@ -58,22 +91,21 @@ jobs:
               const data = await response.json();
               
               if (!data.candidates || data.candidates.length === 0) {
-                core.setFailed("Gemini API did not return any candidates.");
+                core.setFailed("Gemini API returned an empty response.");
                 return;
               }
               
               const generatedText = data.candidates[0].content.parts[0].text;
 
-              // Reply back to the GitHub Issue with the generated Python Code
               await github.rest.issues.createComment({
                 owner: context.repo.owner,
                 repo: context.repo.repo,
                 issue_number: context.payload.issue.number,
-                body: `### 🐍 Generated Python Snake Game Code:\n\n${generatedText}`
+                body: `### 🚀 Generated Python Solution:\n\n${generatedText}`
               });
 
               console.log("Successfully generated code and commented on issue!");
 
             } catch (error) {
-              core.setFailed(`Workflow failed with error: ${error.message}`);
+              core.setFailed(`Workflow Critical Error: ${error.message}`);
             }
