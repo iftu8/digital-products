@@ -12,13 +12,11 @@ permissions:
 jobs:
   generate-code:
     runs-on: ubuntu-latest
-    # Skip howar shomossha dur korte 'if' condition ekdom udiye deya hoyeche.
-    # Ekhon jekono issue open korlei eta run korbe.
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Generate Code with Gemini 3.5 Flash
+      - name: Generate Code with Gemini API
         uses: actions/github-script@v7
         env:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
@@ -28,16 +26,15 @@ jobs:
             const issueTitle = context.payload.issue.title;
             const issueBody = context.payload.issue.body || "Write the exact code for this.";
             
-            // Issue-r title theke automatic ekta clean file-name toiri kora
+            // File name auto-formatting
             let fileName = issueTitle.replace(/\[.*?\]/g, '').replace('create-file:', '').trim();
             fileName = fileName.replace(/[^a-zA-Z0-9.\-_]/g, '-').replace(/-+/g, '-').replace(/^-|-$/g, '').toLowerCase();
             
-            // Jodi title theke kono nam ber na kora jay ba extension na thake
             if (!fileName || fileName === '-') fileName = `auto-generated-${context.issue.number}.md`;
             else if (!fileName.includes('.')) fileName += '.md'; 
             
-            // Apnar account e thaka model ti ekhane deya holo (Gemini 3.5 Flash)
-            const modelName = "gemini-3.5-flash"; 
+            // 🔥 CRITICAL FIX: Google-er ekdom stable model '1.5-flash' deya holo jate 100% kaaj kore
+            const modelName = "gemini-1.5-flash"; 
             const url = `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent?key=${process.env.GEMINI_API_KEY}`;
             
             const payload = {
@@ -54,13 +51,12 @@ jobs:
 
             let data;
             let success = false;
-            
-            // 🔥 SUPER RETRY SYSTEM: Server load thakle jate fail na hoy, tai 15 bar try korbe
-            const maxRetries = 15; 
+            // 🔥 FIX: 10 bar retry korar system jate kono bhabei fail na hoy
+            const maxRetries = 10; 
 
             for (let attempt = 1; attempt <= maxRetries; attempt++) {
               try {
-                console.log(`Attempt ${attempt}/${maxRetries}: Calling ${modelName} API for ${fileName}...`);
+                console.log(`Attempt ${attempt}: Calling Gemini API for ${fileName}...`);
                 const response = await fetch(url, {
                   method: 'POST',
                   headers: { 'Content-Type': 'application/json' },
@@ -69,9 +65,9 @@ jobs:
 
                 data = await response.json();
                 
-                // Server beshi load thakle 30 seconds wait kore abar try korbe
+                // 🔥 FIX: Server load thakle 30 seconds opekha korbe
                 if (response.status === 503) {
-                  console.warn(`⚠️ Server is currently overloaded (503). Attempt ${attempt} failed. Waiting 30 seconds before retrying...`);
+                  console.warn(`⚠️ Server Overloaded (503). Attempt ${attempt} failed. Waiting 30 seconds...`);
                   await new Promise(resolve => setTimeout(resolve, 30000));
                   continue; 
                 }
@@ -97,12 +93,12 @@ jobs:
             }
 
             if (!success) {
-               throw new Error("Failed to generate code even after 15 retries due to heavy server overload.");
+               throw new Error("Failed to generate code after maximum retries.");
             }
             
             let generatedCode = data.candidates[0].content.parts[0].text;
             
-            // AI-er theke asha code e kono barti jinish thakle clean kora
+            // Clean up unnecessary markdown formatting from AI output
             generatedCode = generatedCode.replace(/^```[a-zA-Z0-9+#-]*\s*\n/i, '');
             generatedCode = generatedCode.replace(/\n```\s*$/i, '');
             generatedCode = generatedCode.trim();
@@ -111,22 +107,20 @@ jobs:
             fs.writeFileSync(fileName, generatedCode);
             console.log(`✅ Successfully created file: ${fileName}`);
 
-            // Issue-te comment kore janano
+            // Issue te comment kora
             await github.rest.issues.createComment({
               owner: context.repo.owner,
               repo: context.repo.repo,
               issue_number: context.issue.number,
-              body: `✅ **Task Completed!**\n\nGemini 3.5 Flash has successfully generated the code and created the file: \`${fileName}\`. It is being committed to the repository now.`
+              body: `✅ **Task Completed!**\n\nThe AI has successfully generated the code and created the file: \`${fileName}\`. It is being committed to the repository now.`
             });
             
-            // File-name ti porer commit step e pathanor jonno export kora
             core.exportVariable('GENERATED_FILENAME', fileName);
 
-      # Ei step ti na thakle file toiri holeo apnar Github-e save hoto na
       - name: Commit and Push to Repository
         run: |
           git config --global user.name "github-actions[bot]"
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
           git add "${{ env.GENERATED_FILENAME }}"
-          git commit -m "Auto-generated file by Gemini 3.5 Flash: ${{ env.GENERATED_FILENAME }}" || echo "No changes to commit"
+          git commit -m "Auto-generated file: ${{ env.GENERATED_FILENAME }}" || echo "No changes to commit"
           git push
