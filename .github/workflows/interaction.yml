@@ -1,4 +1,4 @@
-name: Auto Code & README Generator (Gemini 3.5)
+name: Auto Code Generator
 
 on:
   issues:
@@ -7,7 +7,7 @@ on:
 jobs:
   generate-code:
     runs-on: ubuntu-latest
-    # এই শর্তটি 'create-file:', 'build-product:', এবং 'build-project:' সবগুলোর জন্যই রান করবে
+    # create-file, build-product, build-project তিনটির জন্যই কাজ করবে
     if: startsWith(github.event.issue.title, 'create-file:') || startsWith(github.event.issue.title, 'build-product:') || startsWith(github.event.issue.title, 'build-project:')
     permissions:
       issues: write
@@ -16,7 +16,7 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Generate Code with Gemini 3.5
+      - name: Generate Code with AI
         uses: actions/github-script@v7
         env:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
@@ -24,53 +24,39 @@ jobs:
           script: |
             const fs = require('fs');
             const issueTitle = context.payload.issue.title;
-            const issueBody = context.payload.issue.body || "Write the comprehensive code or README for this request.";
-
-            // ফাইলের নাম নির্ধারণ
-            let fileName = "README.md"; 
+            const issueBody = context.payload.issue.body || "Write the code or documentation for this.";
+            
+            // ফাইলের নাম ডাইনামিক্যালি বের করা
+            let fileName = "README.md";
             if (issueTitle.includes('create-file:')) {
-              fileName = issueTitle.replace('create-file:', '').trim();
-            } else if (issueTitle.includes('build-product:')) {
-              fileName = "README.md";
-            } else if (issueTitle.includes('build-project:')) {
-              fileName = "README.md";
+              fileName = issueTitle.split('create-file:')[1].trim();
             }
 
-            // Gemini 3.5 API URL Endpoint (বি.ধ. আপনি চাইলে এটিকে gemini-3.5-pro ও করতে পারেন)
-            const url = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash:generateContent?key=' + process.env.GEMINI_API_KEY;
-
-            // আল্ট্রা-এক্সটেন্ডেড মাস্টার সিস্টেম প্রম্পট
-            const structuralPrompt = `You are an elite Staff Software Engineer and Principal Technical Communicator.
-            Your task is to analyze the following GitHub issue and generate an exceptionally detailed, fully extended, and production-ready output for the file named: "${fileName}".
+            // সঠিক Gemini API (1.5 Flash) ব্যবহার করা হলো
+            const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${process.env.GEMINI_API_KEY}`;
+            
+            // সেরা এবং এক্সটেন্ডেড আউটপুটের জন্য প্রম্পট
+            const prompt = `You are an expert Senior Programmer and Technical Writer. 
+            Generate an absolutely extended, highly detailed, and complete output for the file: "${fileName}".
             
             Issue Title: ${issueTitle}
             Issue Body: ${issueBody}
             
-            STRICT INSTRUCTIONS FOR MAXIMUM QUALITY AND EXTENDED LENGTH:
-            1. If generating 'README.md': Create an industry-grade, highly comprehensive, and visually stunning documentation. Include:
-               - Beautiful title with modern badges (build, license, tech).
-               - Deep 'About The Project' section expanding on the core architecture and purpose.
-               - Exhaustive bulleted list of features.
-               - Full Tech Stack table or breakdown.
-               - Step-by-step 'Getting Started' (Prerequisites, step-by-step installation commands, environment configuration).
-               - Advanced 'Usage' examples with detailed code snippets or terminal usage.
-               - Project Folder/Directory structure map.
-               - A clear Roadmap of future enhancements.
-               - Professional Contributing guidelines, License section, and beautifully formatted Contact/Support info.
-            2. If generating Code (e.g., Python, JS, etc.): Write flawless, complete, and highly optimized production-grade code. DO NOT use comments like "// TODO: implement later". Write out every single line of logic. Include rich inline comments and docstrings.
-            3. OUTPUT FORMAT RULE: Do NOT include any introductory greetings or conversational fillers. Start immediately with the markdown or the source code. Your entire response must be the raw content of the file.`;
+            CRITICAL RULES:
+            1. If it's a code file (like .py, .js), write the full production-ready code with extreme detail and comments. DO NOT leave anything incomplete.
+            2. If it's a README.md, write a highly professional, beautifully structured markdown file with features, setup instructions, and badges.
+            3. DO NOT include markdown code blocks (like \`\`\`python) around the entire output. Return ONLY the raw code/text so it can be directly saved into the file. No greetings, no explanations.`;
 
-            // API Payload Delivery
             const response = await fetch(url, {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({
                 contents: [{
-                  parts: [{ text: structuralPrompt }]
+                  parts: [{ text: prompt }]
                 }],
                 generationConfig: {
-                  maxOutputTokens: 8192, // Gemini 3.5 কে বিশাল বড় আউটপুট দেওয়ার অনুমতি দেয়
-                  temperature: 0.25      // কোড ও ফরম্যাটিং নিখুঁত এবং স্ট্রাকচার্ড রাখার জন্য আদর্শ
+                  maxOutputTokens: 8192, // বড় এবং এক্সটেন্ডেড আউটপুট পাওয়ার জন্য
+                  temperature: 0.3
                 }
               })
             });
@@ -78,32 +64,27 @@ jobs:
             const data = await response.json();
             if (!response.ok) {
               console.error("API Error Details:", JSON.stringify(data, null, 2));
-              throw new Error("API Error: Please check if GEMINI_API_KEY is valid or if the model name is accessible.");
+              throw new Error("API Error: Model issue ba onno kono problem.");
             }
-
-            // রেসপন্স সেফটি ভ্যালিডেশন
-            if (!data.candidates || !data.candidates[0].content || !data.candidates[0].content.parts) {
-              throw new Error("Invalid Response Structure from Gemini API: " + JSON.stringify(data));
-            }
-
+            
             let generatedCode = data.candidates[0].content.parts[0].text;
+            
+            // Markdown ট্যাগ থাকলে তা ক্লিন করা
+            generatedCode = generatedCode.replace(/^```[a-z]*\n/i, '').replace(/
+```$/i, '').trim();
 
-            // AI যদি ভুল করে কোড ব্লক ব্যাকটিক (```) সহ আউটপুট দেয়, তবে তা অটো-ক্লিন করার জন্য
-            generatedCode = generatedCode.replace(/^
-```[a-z]*\n/i, '').replace(/```\s*$/, '');
-
-            // ফাইল রাইট করা
+            // ফাইলটি তৈরি করা
             fs.writeFileSync(fileName, generatedCode);
 
-            // গিটহাব ইস্যুতে কমেন্ট করা
+            // GitHub Issue-তে কমেন্ট করা
             await github.rest.issues.createComment({
               owner: context.repo.owner,
               repo: context.repo.repo,
               issue_number: context.issue.number,
-              body: `🎯 **Success!** Gemini 3.5 has successfully generated a premium, deeply extended \`${fileName}\` file and added it to the repository.`
+              body: `✅ Magic successful! AI apnar jnno \`${fileName}\` file ti extended detail-e auto-generate kore repository te add kore diyeche. Code tab-e giye check korun!`
             });
 
       - name: Commit and Push changes
         uses: stefanzweifel/git-auto-commit-action@v5
         with:
-          commit_message: "Auto-generated ${fileName} by Gemini 3.5"
+          commit_message: "Auto-generated ${fileName} by AI"
