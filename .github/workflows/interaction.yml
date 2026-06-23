@@ -2,8 +2,8 @@ name: Auto Code Generator
 
 on:
   issues:
-    types: [opened, edited] # ইস্যু এডিট করলেও যেন অটো রি-রান হয়
-  workflow_dispatch: # অ্যাকশন ট্যাব থেকে ম্যানুয়ালি রি-রান করার জন্য
+    types: [opened, edited]
+  workflow_dispatch: # Jate action tab theke manually re-run kora jay
 
 jobs:
   generate-code:
@@ -16,7 +16,7 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Generate Code with Gemini 3.5 AI
+      - name: Generate Code with Gemini AI
         uses: actions/github-script@v7
         env:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
@@ -26,12 +26,14 @@ jobs:
             const issueTitle = context.payload.issue.title;
             const issueBody = context.payload.issue.body || "Write the code for this.";
             
-            // ফাইল এর নাম টাইটেল থেকে এক্সট্রাক্ট করা
+            // File er nam ber kora
             const fileName = issueTitle.replace('create-file:', '').trim();
 
-            // লেটেস্ট 'gemini-3.5-flash' মডেল ব্যবহার করা হচ্ছে
-            const modelName = "gemini-3.5-flash"; 
-            const url = `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent?key=${process.env.GEMINI_API_KEY}`;
+            // Ekdom stable ar updated model use kora hocche
+            const modelName = "gemini-1.5-flash"; 
+            
+            // v1beta er bodole ekdom official 'v1' endpoint use kora holo jate 404 error na ashe
+            const url = `https://generativelanguage.googleapis.com/v1/models/${modelName}:generateContent?key=${process.env.GEMINI_API_KEY}`;
             
             try {
               const response = await fetch(url, {
@@ -47,42 +49,40 @@ jobs:
               const data = await response.json();
               
               if (!response.ok) {
-                console.error("Gemini API Error Details:", JSON.stringify(data, null, 2));
-                throw new Error(`API returned status ${response.status}: ${data.error?.message || 'Unknown API Error'}`);
+                console.error("API Error Details:", JSON.stringify(data, null, 2));
+                throw new Error(`API Error: ${data.error?.message || response.status}`);
               }
 
               if (!data.candidates || !data.candidates[0]?.content?.parts?.[0]?.text) {
-                console.error("Invalid API Structure:", JSON.stringify(data, null, 2));
-                throw new Error("API did not return text. It might be blocked by safety settings.");
+                throw new Error("API did not return text. Check prompt or safety settings.");
               }
               
               let generatedCode = data.candidates[0].content.parts[0].text;
               
-              // অ্যাডভান্সড ক্লিনআপ: ব্যাকটিক্স (```) বা অপ্রয়োজনীয় মার্কডাউন ট্যাগ নিখুঁতভাবে রিমুভ করা
+              // Clean-up markdown formats jate file perfectly run kore
               generatedCode = generatedCode.replace(/^```[a-zA-Z0-9+#-]*\s*\n/i, '');
               generatedCode = generatedCode.replace(/\n```\s*$/i, '');
               generatedCode = generatedCode.trim();
 
-              // ফাইল তৈরি ও রাইট করা
+              // File toiri kora
               fs.writeFileSync(fileName, generatedCode);
               console.log(`Successfully created file: ${fileName}`);
 
-              // সাকসেস মেসেজ কমেন্ট করা
+              // GitHub e comment kora
               await github.rest.issues.createComment({
                 owner: context.repo.owner,
                 repo: context.repo.repo,
                 issue_number: context.issue.number,
-                body: `✅ **Magic successful!** AI (\`gemini-3.5-flash\`) আপনার জন্য \`${fileName}\` ফাইলটি সাকসেসফুলি জেনারেট করে রিপোজিটরিতে অ্যাড করে দিয়েছে। কোড ট্যাবটি চেক করে দেখুন!`
+                body: `✅ **Magic successful!** AI (\`${modelName}\`) apnar jonno \`${fileName}\` file ti auto-generate kore repository te add kore diyeche. Code tab e giye check korun!`
               });
 
             } catch (error) {
               console.error("Execution failed:", error);
-              // কোনো এরর হলে তা সরাসরি ইস্যুর কমেন্টে জানিয়ে দেবে
               await github.rest.issues.createComment({
                 owner: context.repo.owner,
                 repo: context.repo.repo,
                 issue_number: context.issue.number,
-                body: `❌ **Error Occurred!** কোড জেনারেট করার সময় একটি সমস্যা হয়েছে।\n**Error Message:** \`${error.message}\``
+                body: `❌ **Error Occurred!** Code generate korar somoy problem hoyeche.\n**Error:** \`${error.message}\``
               });
               core.setFailed(error.message);
             }
@@ -90,4 +90,4 @@ jobs:
       - name: Commit and Push changes
         uses: stefanzweifel/git-auto-commit-action@v5
         with:
-          commit_message: "Auto-generated file by Gemini 3.5 AI [skip ci]"
+          commit_message: "Auto-generated file by AI [skip ci]"
