@@ -36,7 +36,7 @@ jobs:
             if (!fileName || fileName === '-') fileName = `auto-generated-${context.issue.number}.md`;
             else if (!fileName.includes('.')) fileName += '.md'; 
             
-            // Apnar account e thaka model ti ekhane deya holo
+            // Apnar account e thaka model ti ekhane deya holo (Gemini 3.5 Flash)
             const modelName = "gemini-3.5-flash"; 
             const url = `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent?key=${process.env.GEMINI_API_KEY}`;
             
@@ -54,11 +54,13 @@ jobs:
 
             let data;
             let success = false;
-            const maxRetries = 3; // Joto deri hok serial maintain korar jonno retry system
+            
+            // 🔥 SUPER RETRY SYSTEM: Server load thakle jate fail na hoy, tai 15 bar try korbe
+            const maxRetries = 15; 
 
             for (let attempt = 1; attempt <= maxRetries; attempt++) {
               try {
-                console.log(`Attempt ${attempt}: Calling ${modelName} API for ${fileName}...`);
+                console.log(`Attempt ${attempt}/${maxRetries}: Calling ${modelName} API for ${fileName}...`);
                 const response = await fetch(url, {
                   method: 'POST',
                   headers: { 'Content-Type': 'application/json' },
@@ -67,10 +69,10 @@ jobs:
 
                 data = await response.json();
                 
-                // Server beshi load thakle automatic wait korbe
+                // Server beshi load thakle 30 seconds wait kore abar try korbe
                 if (response.status === 503) {
-                  console.warn("⚠️ Server is currently overloaded (503). Waiting 10 seconds before retrying...");
-                  await new Promise(resolve => setTimeout(resolve, 10000));
+                  console.warn(`⚠️ Server is currently overloaded (503). Attempt ${attempt} failed. Waiting 30 seconds before retrying...`);
+                  await new Promise(resolve => setTimeout(resolve, 30000));
                   continue; 
                 }
 
@@ -89,13 +91,13 @@ jobs:
                 if (attempt === maxRetries) {
                   throw error;
                 }
-                console.warn(`⚠️ Attempt ${attempt} failed: ${error.message}. Retrying in 5 seconds...`);
-                await new Promise(resolve => setTimeout(resolve, 5000));
+                console.warn(`⚠️ Attempt ${attempt} failed: ${error.message}. Retrying in 15 seconds...`);
+                await new Promise(resolve => setTimeout(resolve, 15000));
               }
             }
 
             if (!success) {
-               throw new Error("Failed to generate code after maximum retries due to server overload.");
+               throw new Error("Failed to generate code even after 15 retries due to heavy server overload.");
             }
             
             let generatedCode = data.candidates[0].content.parts[0].text;
