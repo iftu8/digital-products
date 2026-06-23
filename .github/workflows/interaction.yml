@@ -30,7 +30,7 @@ jobs:
             fileName = fileName.replace(/[^a-zA-Z0-9.\-_/]/g, "");
             if (!fileName) fileName = "README.md";
             const dir = path.dirname(fileName);
-            if (dir !== ".") { fs.mkdirSync(dir, { recursive: true }); }
+            if (dir !== ".") fs.mkdirSync(dir, { recursive: true });
             const url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=" + process.env.GEMINI_API_KEY;
             const promptText = "You are an Ultimate AI Expert Engineer. Generate a MASSIVELY EXTENDED, highly detailed, production-ready output for the file: " + fileName + "\n\nIssue Title: " + issueTitle + "\nIssue Body: " + issueBody + "\n\nCRITICAL INSTRUCTIONS:\n1. Expand every single detail to its absolute maximum limit.\n2. Write complete, functional logic with deep comments.\n3. Output ONLY the raw text/code to be saved. No markdown code blocks wrapping the whole output.";
             const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -39,16 +39,19 @@ jobs:
             let generatedCode = "";
             for (let attempt = 1; attempt <= 3; attempt++) {
               try {
-                console.log("Attempt " + attempt + " to contact Gemini API...");
+                console.log("Attempt " + attempt);
                 const response = await fetch(url, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ contents: [{ parts: [{ text: promptText }] }], generationConfig: { maxOutputTokens: 8192, temperature: 0.3 } }) });
                 const data = await response.json();
-                if (!response.ok) throw new Error(data.error?.message || "Unknown API Error");
+                if (!response.ok) throw new Error(data.error?.message || "API Error");
                 if (!data.candidates || data.candidates.length === 0) throw new Error("No content returned.");
                 generatedCode = data.candidates[0].content.parts[0].text;
-                generatedCode = generatedCode.replace(/^```[a-zA-Z]*\n/i, "").replace(/
-```\s*$/, "").trim();
+                let lines = generatedCode.split("\n");
+                if (lines[0].includes("```")) lines.shift();
+                if (lines[lines.length - 1].includes("
+```")) lines.pop();
+                generatedCode = lines.join("\n").trim();
                 success = true;
-                console.log("Successfully generated content on attempt " + attempt);
+                console.log("Success on attempt " + attempt);
                 break;
               } catch (err) {
                 lastError = err.message;
@@ -61,7 +64,7 @@ jobs:
               process.exit(1);
             }
             fs.writeFileSync(fileName, generatedCode);
-            await github.rest.issues.createComment({ owner: context.repo.owner, repo: context.repo.repo, issue_number: context.issue.number, body: "🔥 **ULTRA MAGIC SUCCESSFUL!** AI has auto-generated the file `" + fileName + "` with maximum extended output." });
+            await github.rest.issues.createComment({ owner: context.repo.owner, repo: context.repo.repo, issue_number: context.issue.number, body: "🔥 **ULTRA MAGIC SUCCESSFUL!** AI auto-generated the file `" + fileName + "` using Gemini 1.5 Flash with maximum extended output." });
 
       - name: Commit and Push changes
         uses: stefanzweifel/git-auto-commit-action@v5
