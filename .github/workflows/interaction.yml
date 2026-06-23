@@ -41,10 +41,7 @@ jobs:
 
             console.log(`ℹ️ Target File: ${fileName}`);
 
-            // 3. Setup Perfect URL without Markdown Brackets
-            const modelName = "gemini-1.5-flash"; 
-            const url = `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent?key=${process.env.GEMINI_API_KEY}`;
-            
+            // 3. Setup Payload (Max Output Problem Solved Here)
             const payload = {
               contents: [{
                 parts: [{ text: `You are an expert production-grade software engineer. Write the exact source code for this request. 
@@ -53,55 +50,78 @@ jobs:
                 2. DO NOT include any explanations.
                 3. Return ONLY the raw code text.
                 Request: ${issueBody}` }]
-              }]
+              }],
+              generationConfig: {
+                maxOutputTokens: 8192, // <--- এটি বড় কোড জেনারেট করার জন্য ম্যাক্সিমাম আউটপুট সেট করবে
+                temperature: 0.2
+              }
             };
 
-            // 4. Bulletproof Retry Logic (10 attempts, 2 min timeout)
+            // 4. Bulletproof Auto-Fallback Logic (সলভ করবে 404 Error)
+            const modelsToTry = ["gemini-1.5-flash-latest", "gemini-1.5-pro-latest", "gemini-1.0-pro", "gemini-pro"];
             let data = null;
             let success = false;
-            const maxRetries = 10; 
-            const fetchTimeoutMs = 120000; 
 
-            for (let attempt = 1; attempt <= maxRetries; attempt++) {
-              console.log(`\n🚀 Attempt ${attempt}: Calling API...`);
-              const controller = new AbortController();
-              const timeoutId = setTimeout(() => controller.abort(), fetchTimeoutMs);
+            for (const modelName of modelsToTry) {
+              if (success) break; // যদি একটা মডেলে কাজ হয়ে যায়, তবে আর অন্য মডেল খুঁজবে না
+              console.log(`\n=========================================`);
+              console.log(`🚀 Trying Model: ${modelName}`);
 
-              try {
-                const response = await fetch(url, {
-                  method: 'POST',
-                  headers: { 'Content-Type': 'application/json' },
-                  body: JSON.stringify(payload),
-                  signal: controller.signal
-                });
-                
-                clearTimeout(timeoutId);
-                const responseText = await response.text();
-                
-                if (!response.ok) {
-                  if (response.status === 429 || response.status === 503) {
-                     const wait = response.status === 429 ? 20000 : 15000;
-                     console.warn(`⚠️ Server Busy. Waiting ${wait/1000}s...`);
-                     await new Promise(r => setTimeout(r, wait));
-                     continue;
+              const url = `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent?key=${process.env.GEMINI_API_KEY}`;
+              const maxRetries = 5; 
+
+              for (let attempt = 1; attempt <= maxRetries; attempt++) {
+                console.log(`🔄 Attempt ${attempt} for ${modelName}...`);
+                const controller = new AbortController();
+                const timeoutId = setTimeout(() => controller.abort(), 120000); // 2 মিনিট টাইমআউট
+
+                try {
+                  const response = await fetch(url, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload),
+                    signal: controller.signal
+                  });
+                  
+                  clearTimeout(timeoutId);
+                  const responseText = await response.text();
+                  
+                  if (!response.ok) {
+                    // 404 পেলে অন্য মডেলে চলে যাবে
+                    if (response.status === 404) {
+                      console.warn(`⚠️ Model ${modelName} not found or supported by your API Key. Switching to next model...`);
+                      break; 
+                    }
+                    // সার্ভার ওভারলোড (429/503) পেলে কিছুক্ষণ অপেক্ষা করে আবার ট্রাই করবে
+                    if (response.status === 429 || response.status === 503) {
+                       const wait = response.status === 429 ? 20000 : 15000;
+                       console.warn(`⚠️ Server Busy. Waiting ${wait/1000}s...`);
+                       await new Promise(r => setTimeout(r, wait));
+                       continue; 
+                    }
+                    throw new Error(`API Error ${response.status}: ${responseText}`);
                   }
-                  throw new Error(`API Error ${response.status}: ${responseText}`);
+
+                  data = JSON.parse(responseText);
+                  if (!data.candidates) throw new Error("Empty response from AI.");
+                  
+                  success = true; 
+                  console.log(`✅ Successfully generated code using ${modelName}!`);
+                  break; 
+
+                } catch (error) {
+                  clearTimeout(timeoutId);
+                  console.warn(`⚠️ Attempt ${attempt} failed: ${error.message}`);
+                  if (attempt === maxRetries) {
+                    console.log(`❌ Giving up on ${modelName}. Trying next...`);
+                  } else {
+                    await new Promise(r => setTimeout(r, attempt * 5000));
+                  }
                 }
-
-                data = JSON.parse(responseText);
-                if (!data.candidates) throw new Error("Empty response from AI.");
-                
-                success = true; break;
-
-              } catch (error) {
-                clearTimeout(timeoutId);
-                console.warn(`⚠️ Attempt ${attempt} failed: ${error.message}`);
-                if (attempt === maxRetries) throw error;
-                await new Promise(r => setTimeout(r, attempt * 8000));
               }
             }
 
-            if (!success) throw new Error("❌ Failed to generate code.");
+            if (!success) throw new Error("❌ ALL models and retries failed. Check your API Key.");
             
             // 5. Clean & Save
             let generatedCode = data.candidates[0].content.parts[0].text;
