@@ -40,9 +40,9 @@ jobs:
               fs.mkdirSync(dir, { recursive: true });
             }
 
-            const url = '[https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=](https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=)' + process.env.GEMINI_API_KEY;
+            const url = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=' + process.env.GEMINI_API_KEY;
 
-            const promptText = `You are an Ultimate AI Expert Engineer. Generate a MASSIVELY EXTENDED, highly detailed, production-ready output for the file: ${fileName}\n\nIssue Title: ${issueTitle}\nIssue Body: ${issueBody}\n\nCRITICAL INSTRUCTIONS:\n1. Expand every single detail to its absolute maximum limit. Do NOT take any shortcuts.\n2. If it is a code file, write the complete, fully functional logic with deep comments.\n3. If it is a README or documentation, write an exhaustive guide with badges, setup steps, and features.\n4. Output ONLY the raw text/code to be saved in the file. Do NOT wrap the entire response in markdown code blocks.`;
+            const promptText = 'You are an Ultimate AI Expert Engineer. Generate a MASSIVELY EXTENDED, highly detailed, production-ready output for the file: ' + fileName + '\n\nIssue Title: ' + issueTitle + '\nIssue Body: ' + issueBody + '\n\nCRITICAL INSTRUCTIONS:\n1. Expand every single detail to its absolute maximum limit. Do NOT take any shortcuts.\n2. If it is a code file, write the complete, fully functional logic with deep comments.\n3. If it is a README or documentation, write an exhaustive guide with badges, setup steps, and features.\n4. Output ONLY the raw text/code to be saved in the file. Do NOT wrap the entire response in markdown code blocks.';
 
             try {
               const response = await fetch(url, {
@@ -63,13 +63,13 @@ jobs:
               }
 
               if (!data.candidates || data.candidates.length === 0) {
-                throw new Error("AI did not return any content. It might have been blocked by safety filters.");
+                throw new Error('AI did not return any content. It might have been blocked by safety filters.');
               }
 
               let generatedCode = data.candidates[0].content.parts[0].text;
               
-              generatedCode = generatedCode.replace(/^
-```[a-zA-Z]*\n/i, '').replace(/```\s*$/, '').trim();
+              generatedCode = generatedCode.replace(/^```[a-zA-Z]*\n/i, '').replace(/
+```\s*$/, '').trim();
 
               fs.writeFileSync(fileName, generatedCode);
 
@@ -77,7 +77,7 @@ jobs:
                 owner: context.repo.owner,
                 repo: context.repo.repo,
                 issue_number: context.issue.number,
-                body: `🔥 **ULTRA MAGIC SUCCESSFUL!** AI has deeply analyzed your request and auto-generated the file \`${fileName}\` with maximum extended output.`
+                body: '🔥 **ULTRA MAGIC SUCCESSFUL!** AI has deeply analyzed your request and auto-generated the file `' + fileName + '` with maximum extended output.'
               });
               
             } catch (error) {
@@ -87,7 +87,7 @@ jobs:
                 owner: context.repo.owner,
                 repo: context.repo.repo,
                 issue_number: context.issue.number,
-                body: `❌ **AI Generation Failed!** Please check the GitHub Actions logs. Error details: \`${error.message}\``
+                body: '❌ **AI Generation Failed!** Please check the GitHub Actions logs. Error details: ' + error.message
               });
               
               process.exit(1);
