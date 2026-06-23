@@ -8,9 +8,9 @@ on:
 jobs:
   generate-code:
     runs-on: ubuntu-latest
-    timeout-minutes: 15 # Extended duration: পুরো জবের জন্য ১৫ মিনিট সময় দেওয়া হলো
+    timeout-minutes: 20 # Extended duration: পুরো জবের জন্য ২০ মিনিট সময় দেওয়া হলো
     
-    # ফিক্সড: ম্যানুয়াল রান অথবা ইস্যু থেকে কল হলে তবেই কাজ করবে (কোনো Error আসবে না)
+    # ফিক্সড: ম্যানুয়াল রান অথবা ইস্যু থেকে কল হলে তবেই কাজ করবে
     if: github.event_name == 'workflow_dispatch' || (github.event_name == 'issues' && startsWith(github.event.issue.title, 'create-file:'))
     permissions:
       issues: write
@@ -19,7 +19,7 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Generate Code with Gemini 3.5 Flash
+      - name: Generate Code with Gemini API
         uses: actions/github-script@v7
         env:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
@@ -43,9 +43,12 @@ jobs:
             console.log(`ℹ️ Event Trigger: ${context.eventName}`);
             console.log(`ℹ️ Target File: ${fileName}`);
 
-            // 3. API Setup (Using Gemini 3.5 Flash)
-            const modelName = "gemini-3.5-flash"; 
-            const url = `[https://generativelanguage.googleapis.com/v1beta/models/$](https://generativelanguage.googleapis.com/v1beta/models/$){modelName}:generateContent?key=${process.env.GEMINI_API_KEY}`;
+            // 3. API Setup 
+            // Note: Use a valid model name. gemini-1.5-flash is stable and fast.
+            const modelName = "gemini-1.5-flash"; 
+            
+            // ✅ FIXED URL: Removed markdown formatting brackets from the URL
+            const url = `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent?key=${process.env.GEMINI_API_KEY}`;
             
             const payload = {
               contents: [{
@@ -62,11 +65,11 @@ jobs:
             // 4. Extended Retry & Advanced Timeout Logic
             let data = null;
             let success = false;
-            const maxRetries = 5; // Retries বাড়ানো হয়েছে
-            const fetchTimeoutMs = 60000; // প্রতি রিকোয়েস্টে সর্বোচ্চ ৬০ সেকেন্ড অপেক্ষা করবে
+            const maxRetries = 10; // Retries বাড়িয়ে ১০ বার করা হয়েছে
+            const fetchTimeoutMs = 120000; // প্রতি রিকোয়েস্টে সর্বোচ্চ ২ মিনিট অপেক্ষা করবে
 
             for (let attempt = 1; attempt <= maxRetries; attempt++) {
-              console.log(`\n🚀 Attempt ${attempt} of ${maxRetries}: Calling Gemini 3.5 Flash API...`);
+              console.log(`\n🚀 Attempt ${attempt} of ${maxRetries}: Calling Gemini API...`);
               
               const controller = new AbortController();
               const timeoutId = setTimeout(() => controller.abort(), fetchTimeoutMs);
@@ -86,7 +89,7 @@ jobs:
                 // Handling Rate Limits (429) & Server Overload (503)
                 if (!response.ok) {
                   if (response.status === 429 || response.status === 503) {
-                     const waitTime = response.status === 429 ? 15000 : 10000;
+                     const waitTime = response.status === 429 ? 20000 : 15000;
                      console.warn(`⚠️ Server Busy (${response.status}). Waiting ${waitTime/1000}s before retrying...`);
                      await new Promise(resolve => setTimeout(resolve, waitTime));
                      continue;
@@ -96,7 +99,7 @@ jobs:
                   try {
                     const errJson = JSON.parse(responseText);
                     errorMsg = errJson.error?.message || responseText;
-                  } catch(e) { } // If not JSON, use raw text
+                  } catch(e) { } 
                   
                   throw new Error(`API Error ${response.status}: ${errorMsg}`);
                 }
@@ -115,7 +118,7 @@ jobs:
                 clearTimeout(timeoutId);
                 
                 if (error.name === 'AbortError') {
-                  console.warn(`⚠️ Attempt ${attempt} timed out after ${fetchTimeoutMs/1000} seconds.`);
+                  console.warn(`⚠️ Attempt ${attempt} timed out after ${fetchTimeoutMs/1000} seconds. Data might be too large.`);
                 } else {
                   console.warn(`⚠️ Attempt ${attempt} failed: ${error.message}`);
                 }
@@ -126,7 +129,7 @@ jobs:
                 }
                 
                 // Exponential Backoff: প্রতিবার ফেইল করলে আরও বেশি সময় অপেক্ষা করবে
-                const backoffTime = attempt * 5000;
+                const backoffTime = attempt * 8000;
                 console.log(`⏳ Retrying in ${backoffTime/1000} seconds...`);
                 await new Promise(resolve => setTimeout(resolve, backoffTime));
               }
@@ -136,12 +139,12 @@ jobs:
                throw new Error("❌ Failed to generate code. Check logs for details.");
             }
             
-            // 5. Clean & Save Result
+            // 5. Clean & Save Result (Better Regex for cleanup)
             let generatedCode = data.candidates[0].content.parts[0].text;
             
-            // ফিক্সড: এই লাইনেই আগেরবার এন্টার দেওয়ার কারণে সিনট্যাক্স এরর (Failure) আসতো
-            generatedCode = generatedCode.replace(/^```[a-zA-Z0-9+#-]*\s*\n/i, '');
-            generatedCode = generatedCode.replace(/\n```\s*$/i, '');
+            // রিমুভ মার্কডাউন ব্লক যদি এআই দিয়ে ফেলে
+            generatedCode = generatedCode.replace(/^```[a-zA-Z0-9+#-]*\n?/gm, '');
+            generatedCode = generatedCode.replace(/```$/gm, '');
             generatedCode = generatedCode.trim();
 
             fs.writeFileSync(fileName, generatedCode);
@@ -154,7 +157,7 @@ jobs:
                   owner: context.repo.owner,
                   repo: context.repo.repo,
                   issue_number: context.issue.number,
-                  body: `✅ **Magic successful!** The **Gemini 3.5 Flash** model has generated the code for \`${fileName}\` and added it to the repository. Please check the Code tab!`
+                  body: `✅ **Magic successful!** The **Gemini API** has generated the code for \`${fileName}\` and added it to the repository. Please check the Code tab!`
                 });
                 console.log("✅ Comment posted to issue.");
               } catch (commentErr) {
@@ -167,4 +170,4 @@ jobs:
       - name: Commit and Push changes
         uses: stefanzweifel/git-auto-commit-action@v5
         with:
-          commit_message: "Auto-generated file by Gemini 3.5 Flash [skip ci]"
+          commit_message: "Auto-generated file by Gemini API [skip ci]"
