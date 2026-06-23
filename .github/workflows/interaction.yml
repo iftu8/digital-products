@@ -3,7 +3,7 @@ name: Auto Code Generator
 on:
   issues:
     types: [opened, edited]
-  workflow_dispatch: # অ্যাকশন ট্যাব থেকে ম্যানুয়ালি রি-রান করার জন্য
+  workflow_dispatch:
 
 jobs:
   generate-code:
@@ -16,7 +16,7 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Generate Code with Gemini 2.5
+      - name: Generate Code with Gemini AI
         uses: actions/github-script@v7
         env:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
@@ -24,76 +24,84 @@ jobs:
           script: |
             const fs = require('fs');
             const issueTitle = context.payload.issue.title;
-            const issueBody = context.payload.issue.body || "Write a basic script.";
+            const issueBody = context.payload.issue.body || "Write the code for this.";
             
-            // ফাইল এর নাম এক্সট্রাক্ট করা
             const fileName = issueTitle.replace('create-file:', '').trim();
-
-            // ২০২৬ সালের সবচেয়ে আপডেটেড এবং সুপার-ফাস্ট মডেল
-            const modelName = "gemini-2.5-flash"; 
+            const modelName = "gemini-1.5-flash"; 
             const url = `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent?key=${process.env.GEMINI_API_KEY}`;
             
-            try {
-              console.log(`Calling Gemini API for file: ${fileName}...`);
-              const response = await fetch(url, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                  contents: [{
-                    parts: [{ text: `You are an expert production-grade software engineer. Write the exact source code for this request. 
-                    CRITICAL RULES:
-                    1. DO NOT include any markdown code blocks (like \`\`\`python, \`\`\`javascript, or \`\`\`).
-                    2. DO NOT include any explanations, introduction, or outro text.
-                    3. Return ONLY the raw code text so it can be directly saved into a file.
-                    
-                    Request: ${issueBody}` }]
-                  }]
-                })
-              });
+            const payload = {
+              contents: [{
+                parts: [{ text: `You are an expert programmer. Write the exact source code for this request. DO NOT include any markdown code blocks (like \`\`\`python, \`\`\`js or \`\`\`), do not include explanations. Return ONLY the raw code text. Request: ${issueBody}` }]
+              }]
+            };
 
-              const data = await response.json();
-              
-              if (!response.ok) {
-                console.error("Gemini API Error Details:", JSON.stringify(data, null, 2));
-                throw new Error(`API returned status ${response.status}: ${data.error?.message || 'Unknown Error'}`);
+            let data;
+            let success = false;
+            const maxRetries = 3; // সার্ভার বিজি থাকলে সর্বোচ্চ ৩ বার ট্রাই করবে
+
+            for (let attempt = 1; attempt <= maxRetries; attempt++) {
+              try {
+                console.log(`Attempt ${attempt}: Calling Gemini API for ${fileName}...`);
+                const response = await fetch(url, {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify(payload)
+                });
+
+                data = await response.json();
+                
+                // যদি 503 Overload Error আসে, তবে ১০ সেকেন্ড ওয়েট করে আবার ট্রাই করবে
+                if (response.status === 503) {
+                  console.warn("⚠️ Server is currently overloaded (503). Waiting 10 seconds before retrying...");
+                  await new Promise(resolve => setTimeout(resolve, 10000));
+                  continue; 
+                }
+
+                if (!response.ok) {
+                  throw new Error(`API Error ${response.status}: ${data.error?.message || 'Unknown'}`);
+                }
+
+                if (!data.candidates || !data.candidates[0]?.content?.parts?.[0]?.text) {
+                  throw new Error("API did not return text. Check prompt or safety settings.");
+                }
+                
+                success = true;
+                break; // সফল হলে লুপ থেকে বের হয়ে যাবে
+
+              } catch (error) {
+                if (attempt === maxRetries) {
+                  throw error; // ৩ বার ট্রাই করার পরও না হলে ফাইনাল এরর থ্রো করবে
+                }
+                console.warn(`⚠️ Attempt ${attempt} failed: ${error.message}. Retrying in 5 seconds...`);
+                await new Promise(resolve => setTimeout(resolve, 5000));
               }
-
-              if (!data.candidates || !data.candidates[0]?.content?.parts?.[0]?.text) {
-                throw new Error("API did not return any text. It might be blocked by safety settings or empty prompt.");
-              }
-              
-              let generatedCode = data.candidates[0].content.parts[0].text;
-              
-              // ব্যাকআপ ক্লিনআপ: এআই ভুল করে ব্যাকটিক্স (```) দিলে তা রিমুভ করার জন্য শক্তিশালী রেজেক্স
-              generatedCode = generatedCode.replace(/^```[a-zA-Z0-9+#-]*\s*\n/i, '');
-              generatedCode = generatedCode.replace(/\n```\s*$/i, '');
-              generatedCode = generatedCode.trim();
-
-              // ফাইল রাইট করা
-              fs.writeFileSync(fileName, generatedCode);
-              console.log(`Successfully created file: ${fileName}`);
-
-              // সাকসেস কমেন্ট পোস্ট করা
-              await github.rest.issues.createComment({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                issue_number: context.issue.number,
-                body: `✅ **Magic successful!** AI (\`${modelName}\`) আপনার জন্য \`${fileName}\` ফাইলটি সাকসেসফুলি জেনারেট করে রিপোজিটরিতে অ্যাড করে দিয়েছে। কোড ট্যাবটি চেক করে দেখুন!`
-              });
-
-            } catch (error) {
-              console.error("Execution failed:", error);
-              // এরর হলে কমেন্টে ডিটেইলস দেওয়া
-              await github.rest.issues.createComment({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                issue_number: context.issue.number,
-                body: `❌ **Error Occurred!** কোড জেনারেট করার সময় একটি সমস্যা হয়েছে।\n**Error Message:** \`${error.message}\`\n\n*দয়া করে আপনার GEMINI_API_KEY চেক করুন।*`
-              });
-              core.setFailed(error.message);
             }
+
+            if (!success) {
+               throw new Error("Failed to generate code after maximum retries due to server overload.");
+            }
+            
+            let generatedCode = data.candidates[0].content.parts[0].text;
+            
+            // Clean-up markdown
+            generatedCode = generatedCode.replace(/^```[a-zA-Z0-9+#-]*\s*\n/i, '');
+            generatedCode = generatedCode.replace(/\n```\s*$/i, '');
+            generatedCode = generatedCode.trim();
+
+            // ফাইল তৈরি করা
+            fs.writeFileSync(fileName, generatedCode);
+            console.log(`✅ Successfully created file: ${fileName}`);
+
+            // কমেন্ট করা
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+              body: `✅ **Magic successful!** AI apnar jonno \`${fileName}\` file ti auto-generate kore repository te add kore diyeche. Code tab e giye check korun!`
+            });
 
       - name: Commit and Push changes
         uses: stefanzweifel/git-auto-commit-action@v5
         with:
-          commit_message: "Auto-generated file by Gemini 2.5 AI [skip ci]"
+          commit_message: "Auto-generated file by AI [skip ci]"
