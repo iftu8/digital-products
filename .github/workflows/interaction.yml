@@ -5,13 +5,15 @@ on:
     types: [opened, edited]
   workflow_dispatch:
 
+permissions:
+  issues: write
+  contents: write
+
 jobs:
   generate-code:
     runs-on: ubuntu-latest
-    if: startsWith(github.event.issue.title, 'create-file:')
-    permissions:
-      issues: write
-      contents: write
+    # Skip howar shomossha dur korte 'if' condition ekdom udiye deya hoyeche.
+    # Ekhon jekono issue open korlei eta run korbe.
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -24,11 +26,17 @@ jobs:
           script: |
             const fs = require('fs');
             const issueTitle = context.payload.issue.title;
-            const issueBody = context.payload.issue.body || "Write the code for this.";
+            const issueBody = context.payload.issue.body || "Write the exact code for this.";
             
-            const fileName = issueTitle.replace('create-file:', '').trim();
+            // Issue-r title theke automatic ekta clean file-name toiri kora
+            let fileName = issueTitle.replace(/\[.*?\]/g, '').replace('create-file:', '').trim();
+            fileName = fileName.replace(/[^a-zA-Z0-9.\-_]/g, '-').replace(/-+/g, '-').replace(/^-|-$/g, '').toLowerCase();
             
-            // Upgraded to Gemini 3.5 Flash for maximum accuracy and error-free output
+            // Jodi title theke kono nam ber na kora jay ba extension na thake
+            if (!fileName || fileName === '-') fileName = `auto-generated-${context.issue.number}.md`;
+            else if (!fileName.includes('.')) fileName += '.md'; 
+            
+            // Apnar account e thaka model ti ekhane deya holo
             const modelName = "gemini-3.5-flash"; 
             const url = `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent?key=${process.env.GEMINI_API_KEY}`;
             
@@ -46,11 +54,11 @@ jobs:
 
             let data;
             let success = false;
-            const maxRetries = 3;
+            const maxRetries = 3; // Joto deri hok serial maintain korar jonno retry system
 
             for (let attempt = 1; attempt <= maxRetries; attempt++) {
               try {
-                console.log(`Attempt ${attempt}: Calling Gemini 3.5 Flash API for ${fileName}...`);
+                console.log(`Attempt ${attempt}: Calling ${modelName} API for ${fileName}...`);
                 const response = await fetch(url, {
                   method: 'POST',
                   headers: { 'Content-Type': 'application/json' },
@@ -59,7 +67,7 @@ jobs:
 
                 data = await response.json();
                 
-                // 503 error handled securely
+                // Server beshi load thakle automatic wait korbe
                 if (response.status === 503) {
                   console.warn("⚠️ Server is currently overloaded (503). Waiting 10 seconds before retrying...");
                   await new Promise(resolve => setTimeout(resolve, 10000));
@@ -92,24 +100,31 @@ jobs:
             
             let generatedCode = data.candidates[0].content.parts[0].text;
             
-            // Clean-up any unexpected markdown formatting
+            // AI-er theke asha code e kono barti jinish thakle clean kora
             generatedCode = generatedCode.replace(/^```[a-zA-Z0-9+#-]*\s*\n/i, '');
             generatedCode = generatedCode.replace(/\n```\s*$/i, '');
             generatedCode = generatedCode.trim();
 
-            // File create step
+            // File toiri kora
             fs.writeFileSync(fileName, generatedCode);
             console.log(`✅ Successfully created file: ${fileName}`);
 
-            // Comment on github issue
+            // Issue-te comment kore janano
             await github.rest.issues.createComment({
               owner: context.repo.owner,
               repo: context.repo.repo,
               issue_number: context.issue.number,
-              body: `✅ **Magic successful!** Frontier Model **Gemini 3.5 Flash** apnar jonno \`${fileName}\` file ti successfully high-quality formatting e generate kore repository te add kore diyeche. Code tab e check korun!`
+              body: `✅ **Task Completed!**\n\nGemini 3.5 Flash has successfully generated the code and created the file: \`${fileName}\`. It is being committed to the repository now.`
             });
+            
+            // File-name ti porer commit step e pathanor jonno export kora
+            core.exportVariable('GENERATED_FILENAME', fileName);
 
-      - name: Commit and Push changes
-        uses: stefanzweifel/git-auto-commit-action@v5
-        with:
-          commit_message: "Auto-generated file by Gemini 3.5 Flash [skip ci]"
+      # Ei step ti na thakle file toiri holeo apnar Github-e save hoto na
+      - name: Commit and Push to Repository
+        run: |
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+          git add "${{ env.GENERATED_FILENAME }}"
+          git commit -m "Auto-generated file by Gemini 3.5 Flash: ${{ env.GENERATED_FILENAME }}" || echo "No changes to commit"
+          git push
