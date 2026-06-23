@@ -1,4 +1,4 @@
-name: Ultimate Auto AI Generator
+name: Auto Code Generator
 
 on:
   issues:
@@ -9,103 +9,92 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       issues: write
-      contents: read
-
+      contents: write
     steps:
-      - name: Checkout repository
+      - name: Checkout Repository
         uses: actions/checkout@v4
 
-      - name: Generate Content with Gemini AI
+      - name: Generate Code with Gemini AI
         uses: actions/github-script@v7
         env:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
         with:
           script: |
-            const issueTitle = context.payload.issue.title;
-            const issueBody = context.payload.issue.body || "";
+            const fs = require('fs');
             
-            const rawApiKey = process.env.GEMINI_API_KEY;
-            if (!rawApiKey) {
-              core.setFailed("Error: GEMINI_API_KEY secret is missing in repository settings!");
+            // Issue details কালেক্ট করা
+            const issueTitle = context.payload.issue.title;
+            const issueBody = context.payload.issue.body || "Write code for this request.";
+            
+            // ১. স্মার্টলি ফাইলের নাম ডিটেক্ট করা (create-file: থাকলেও কাজ করবে, না থাকলেও অটো নাম নেবে)
+            let fileName = "solution.py";
+            if (issueTitle.toLowerCase().includes('create-file:')) {
+              fileName = issueTitle.replace(/create-file:/i, '').trim();
+            } else {
+              fileName = issueTitle.toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_|_$/g, '') + '.py';
+            }
+            if (!fileName || fileName === '.py') fileName = 'generated_code.py';
+
+            // ২. API Key থেকে সব হিডেন স্পেস বা নিউলাইন ক্লিন করা (.trim)
+            const rawKey = process.env.GEMINI_API_KEY || "";
+            const apiKey = rawKey.trim();
+            
+            if (!apiKey) {
+              core.setFailed("❌ Error: GEMINI_API_KEY secret is missing in repository settings!");
               return;
             }
 
-            // CRITICAL FIX 1: .trim() removes any invisible spaces or accidental newlines from the secret
-            const apiKey = rawApiKey.trim();
-
-            // CRITICAL FIX 2: Upgraded from 'v1beta' (experimental) to the rock-solid 'v1' stable production API
-            const url = `https://generativelanguage.googleapis.com/v1/models/gemini-1.5-flash:generateContent?key=${apiKey}`;
-
-            const prompt = `You are an expert Python developer. Based on the following GitHub issue request, write a fully functional, highly polished, and complete Python script. Do not provide mockups or partial snippets.\n\nIssue Title: ${issueTitle}\nIssue Description: ${issueBody}`;
+            // ৩. একদম স্টেবল এবং লেটেস্ট অফিশিয়াল প্রোডাকশন মডেল ব্যবহার করা
+            const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`;
+            
+            // AI-কে কড়া নির্দেশনা যাতে সে শুধু র-কোড (raw code) দেয়
+            const prompt = `You are an expert programmer. Write the complete, raw, production-ready source code for this request. 
+            DO NOT wrap the code in markdown blocks like \`\`\`python. 
+            DO NOT write any introduction, conversational text, or explanation. 
+            Return ONLY the raw executable lines of code. 
+            
+            Request Details:
+            Title: ${issueTitle}
+            Body: ${issueBody}`;
 
             try {
-              console.log("Connecting to Google Gemini API (v1 Stable)...");
-              
+              console.log("Connecting to Gemini API...");
               const response = await fetch(url, {
-                method: "POST",
-                headers: {
-                  "Content-Type": "application/json"
-                },
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
-                  contents: [{
-                    parts: [{ text: prompt }]
-                  }]
+                  contents: [{ parts: [{ text: prompt }] }]
                 })
               });
 
-              // CRITICAL FIX 3: Built-in Auto Fallback Engine so it never fails on a 404 again
               if (!response.ok) {
-                const errorText = await response.text();
-                console.warn(`Primary API call returned ${response.status}. Trying fallback options...`);
-                
-                if (response.status === 404) {
-                  console.log("Switching to fallback model alias 'gemini-1.5-flash-latest'...");
-                  const fallbackUrl = `https://generativelanguage.googleapis.com/v1/models/gemini-1.5-flash-latest:generateContent?key=${apiKey}`;
-                  
-                  const fallbackRes = await fetch(fallbackUrl, {
-                    method: "POST",
-                    headers: { "Content-Type": "application/json" },
-                    body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }] })
-                  });
-
-                  if (fallbackRes.ok) {
-                    const fallbackData = await fallbackRes.json();
-                    const fallbackText = fallbackData.candidates[0].content.parts[0].text;
-                    
-                    await github.rest.issues.createComment({
-                      owner: context.repo.owner,
-                      repo: context.repo.repo,
-                      issue_number: context.payload.issue.number,
-                      body: `### 🚀 Generated Python Solution:\n\n${fallbackText}`
-                    });
-                    
-                    console.log("Success: Code generated successfully using fallback model!");
-                    return;
-                  }
-                }
-
-                core.setFailed(`Gemini API Error: ${response.status} - ${errorText}`);
-                return;
+                const errText = await response.text();
+                throw new Error(`API returned status ${response.status}: ${errText}`);
               }
 
               const data = await response.json();
+              let code = data.candidates[0].content.parts[0].text;
               
-              if (!data.candidates || data.candidates.length === 0) {
-                core.setFailed("Gemini API returned an empty response.");
-                return;
-              }
+              // ৪. সেফটি ফিল্টার: এআই যদি ভুল করেও markdown কোড ব্লক দেয়, তা রিমুভ করা
+              code = code.replace(/^```[a-z]*\n/i, '').replace(/```$/i, '').trim();
               
-              const generatedText = data.candidates[0].content.parts[0].text;
-
+              // ৫. ফাইলটি সরাসরি রিপোজিটরিতে সেভ করা
+              fs.writeFileSync(fileName, code);
+              console.log(`Successfully saved code to ${fileName}`);
+              
+              // ৬. সাকসেস মেসেজ দিয়ে কমেন্ট করা
               await github.rest.issues.createComment({
                 owner: context.repo.owner,
                 repo: context.repo.repo,
-                issue_number: context.payload.issue.number,
-                body: `### 🚀 Generated Python Solution:\n\n${generatedText}`
+                issue_number: context.issue.number,
+                body: `✅ **Magic Successful!** Gemini AI আপনার জন্য \`${fileName}\` ফাইলটি অটো-জেনারেট করে রিপোজিটরিতে যোগ করে দিয়েছে। কোড ট্যাবে গিয়ে চেক করুন!`
               });
 
-              console.log("Successfully generated code and commented on issue!");
-
             } catch (error) {
-              core.setFailed(`Workflow Critical Error: ${error.message}`);
+              core.setFailed(`Workflow Failed: ${error.message}`);
             }
+
+      - name: Commit and Push changes
+        uses: stefanzweifel/git-auto-commit-action@v5
+        with:
+          commit_message: "🤖 Auto-generated file by AI via Issue"
