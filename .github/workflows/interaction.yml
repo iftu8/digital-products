@@ -8,9 +8,8 @@ on:
 jobs:
   generate-code:
     runs-on: ubuntu-latest
-    timeout-minutes: 20 # Extended duration: পুরো জবের জন্য ২০ মিনিট সময় দেওয়া হলো
+    timeout-minutes: 20
     
-    # ফিক্সড: ম্যানুয়াল রান অথবা ইস্যু থেকে কল হলে তবেই কাজ করবে
     if: github.event_name == 'workflow_dispatch' || (github.event_name == 'issues' && startsWith(github.event.issue.title, 'create-file:'))
     permissions:
       issues: write
@@ -29,48 +28,42 @@ jobs:
             
             // 1. API Key Validation
             if (!process.env.GEMINI_API_KEY) {
-              console.error("❌ ERROR: GEMINI_API_KEY is not set in GitHub Secrets!");
+              console.error("❌ ERROR: GEMINI_API_KEY is not set!");
               process.exit(1);
             }
 
-            // 2. Safe Payload Extraction for Manual & Issue trigger
-            const issueTitle = context.payload.issue?.title || "create-file: test_manual_extended.js";
-            const issueBody = context.payload.issue?.body || "console.log('Hello from robust manual test run!');";
+            // 2. Extract Data
+            const issueTitle = context.payload.issue?.title || "create-file: manual_test.js";
+            const issueBody = context.payload.issue?.body || "console.log('Success!');";
             
             let fileName = issueTitle.replace('create-file:', '').trim();
-            if (!fileName) fileName = "untitled_generated_file.txt";
+            if (!fileName) fileName = "untitled.txt";
 
-            console.log(`ℹ️ Event Trigger: ${context.eventName}`);
             console.log(`ℹ️ Target File: ${fileName}`);
 
-            // 3. API Setup 
-            // Note: Use a valid model name. gemini-1.5-flash is stable and fast.
+            // 3. Setup Perfect URL without Markdown Brackets
             const modelName = "gemini-1.5-flash"; 
-            
-            // ✅ FIXED URL: Removed markdown formatting brackets from the URL
             const url = `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent?key=${process.env.GEMINI_API_KEY}`;
             
             const payload = {
               contents: [{
                 parts: [{ text: `You are an expert production-grade software engineer. Write the exact source code for this request. 
                 CRITICAL RULES:
-                1. DO NOT include any markdown code blocks (like \`\`\`python, \`\`\`javascript, or \`\`\`).
-                2. DO NOT include any explanations, introduction, or outro text.
-                3. Return ONLY the raw code text so it can be directly saved into a file.
-                
+                1. DO NOT include any markdown code blocks.
+                2. DO NOT include any explanations.
+                3. Return ONLY the raw code text.
                 Request: ${issueBody}` }]
               }]
             };
 
-            // 4. Extended Retry & Advanced Timeout Logic
+            // 4. Bulletproof Retry Logic (10 attempts, 2 min timeout)
             let data = null;
             let success = false;
-            const maxRetries = 10; // Retries বাড়িয়ে ১০ বার করা হয়েছে
-            const fetchTimeoutMs = 120000; // প্রতি রিকোয়েস্টে সর্বোচ্চ ২ মিনিট অপেক্ষা করবে
+            const maxRetries = 10; 
+            const fetchTimeoutMs = 120000; 
 
             for (let attempt = 1; attempt <= maxRetries; attempt++) {
-              console.log(`\n🚀 Attempt ${attempt} of ${maxRetries}: Calling Gemini API...`);
-              
+              console.log(`\n🚀 Attempt ${attempt}: Calling API...`);
               const controller = new AbortController();
               const timeoutId = setTimeout(() => controller.abort(), fetchTimeoutMs);
 
@@ -83,91 +76,48 @@ jobs:
                 });
                 
                 clearTimeout(timeoutId);
-
                 const responseText = await response.text();
                 
-                // Handling Rate Limits (429) & Server Overload (503)
                 if (!response.ok) {
                   if (response.status === 429 || response.status === 503) {
-                     const waitTime = response.status === 429 ? 20000 : 15000;
-                     console.warn(`⚠️ Server Busy (${response.status}). Waiting ${waitTime/1000}s before retrying...`);
-                     await new Promise(resolve => setTimeout(resolve, waitTime));
+                     const wait = response.status === 429 ? 20000 : 15000;
+                     console.warn(`⚠️ Server Busy. Waiting ${wait/1000}s...`);
+                     await new Promise(r => setTimeout(r, wait));
                      continue;
                   }
-                  
-                  let errorMsg = responseText;
-                  try {
-                    const errJson = JSON.parse(responseText);
-                    errorMsg = errJson.error?.message || responseText;
-                  } catch(e) { } 
-                  
-                  throw new Error(`API Error ${response.status}: ${errorMsg}`);
+                  throw new Error(`API Error ${response.status}: ${responseText}`);
                 }
 
-                // Parse JSON on success
                 data = JSON.parse(responseText);
-
-                if (!data.candidates || !data.candidates[0]?.content?.parts?.[0]?.text) {
-                  throw new Error("API returned an empty response or was blocked by safety filters.");
-                }
+                if (!data.candidates) throw new Error("Empty response from AI.");
                 
-                success = true;
-                break;
+                success = true; break;
 
               } catch (error) {
                 clearTimeout(timeoutId);
-                
-                if (error.name === 'AbortError') {
-                  console.warn(`⚠️ Attempt ${attempt} timed out after ${fetchTimeoutMs/1000} seconds. Data might be too large.`);
-                } else {
-                  console.warn(`⚠️ Attempt ${attempt} failed: ${error.message}`);
-                }
-                
-                if (attempt === maxRetries) {
-                  console.error("❌ Maximum retries reached. Failing workflow.");
-                  throw error;
-                }
-                
-                // Exponential Backoff: প্রতিবার ফেইল করলে আরও বেশি সময় অপেক্ষা করবে
-                const backoffTime = attempt * 8000;
-                console.log(`⏳ Retrying in ${backoffTime/1000} seconds...`);
-                await new Promise(resolve => setTimeout(resolve, backoffTime));
+                console.warn(`⚠️ Attempt ${attempt} failed: ${error.message}`);
+                if (attempt === maxRetries) throw error;
+                await new Promise(r => setTimeout(r, attempt * 8000));
               }
             }
 
-            if (!success) {
-               throw new Error("❌ Failed to generate code. Check logs for details.");
-            }
+            if (!success) throw new Error("❌ Failed to generate code.");
             
-            // 5. Clean & Save Result (Better Regex for cleanup)
+            // 5. Clean & Save
             let generatedCode = data.candidates[0].content.parts[0].text;
-            
-            // রিমুভ মার্কডাউন ব্লক যদি এআই দিয়ে ফেলে
-            generatedCode = generatedCode.replace(/^```[a-zA-Z0-9+#-]*\n?/gm, '');
-            generatedCode = generatedCode.replace(/```$/gm, '');
-            generatedCode = generatedCode.trim();
+            generatedCode = generatedCode.replace(/^```[a-zA-Z0-9+#-]*\n?/gm, '').replace(/```$/gm, '').trim();
 
             fs.writeFileSync(fileName, generatedCode);
-            console.log(`✅ Successfully created file: ${fileName}`);
+            console.log(`✅ File created: ${fileName}`);
 
-            // 6. Post Issue Comment Safely
             if (context.issue?.number) {
-              try {
-                await github.rest.issues.createComment({
-                  owner: context.repo.owner,
-                  repo: context.repo.repo,
-                  issue_number: context.issue.number,
-                  body: `✅ **Magic successful!** The **Gemini API** has generated the code for \`${fileName}\` and added it to the repository. Please check the Code tab!`
-                });
-                console.log("✅ Comment posted to issue.");
-              } catch (commentErr) {
-                console.warn(`⚠️ File generated, but failed to post comment: ${commentErr.message}`);
-              }
-            } else {
-              console.log("ℹ️ Manual dispatch. Skipping issue comment.");
+              await github.rest.issues.createComment({
+                owner: context.repo.owner, repo: context.repo.repo, issue_number: context.issue.number,
+                body: `✅ **Success!** Code generated for \`${fileName}\`.`
+              });
             }
 
       - name: Commit and Push changes
         uses: stefanzweifel/git-auto-commit-action@v5
         with:
-          commit_message: "Auto-generated file by Gemini API [skip ci]"
+          commit_message: "Auto-generated file by AI [skip ci]"
