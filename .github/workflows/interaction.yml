@@ -8,7 +8,8 @@ on:
 jobs:
   generate-code:
     runs-on: ubuntu-latest
-    if: startsWith(github.event.issue.title, 'create-file:')
+    # ফিক্স: ম্যানুয়ালি রান করলে অথবা ইস্যু টাইটেল মিললে তবেই রান করবে
+    if: github.event_name == 'workflow_dispatch' || startsWith(github.event.issue.title, 'create-file:')
     permissions:
       issues: write
       contents: write
@@ -23,8 +24,10 @@ jobs:
         with:
           script: |
             const fs = require('fs');
-            const issueTitle = context.payload.issue.title;
-            const issueBody = context.payload.issue.body || "Write the code for this.";
+            
+            // ফিক্স: ম্যানুয়ালি রান করলে এরর না দিয়ে ডিফল্ট টেস্ট ফাইল বানাবে (?.) ব্যবহার করে
+            const issueTitle = context.payload.issue?.title || "create-file: test_manual.txt";
+            const issueBody = context.payload.issue?.body || "Write a simple Hello World in Python.";
             
             const fileName = issueTitle.replace('create-file:', '').trim();
             
@@ -94,20 +97,25 @@ jobs:
             
             // Clean-up any unexpected markdown formatting
             generatedCode = generatedCode.replace(/^```[a-zA-Z0-9+#-]*\s*\n/i, '');
-            generatedCode = generatedCode.replace(/\n```\s*$/i, '');
+            generatedCode = generatedCode.replace(/\n
+```\s*$/i, '');
             generatedCode = generatedCode.trim();
 
             // File create step
             fs.writeFileSync(fileName, generatedCode);
             console.log(`✅ Successfully created file: ${fileName}`);
 
-            // Comment on github issue
-            await github.rest.issues.createComment({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              issue_number: context.issue.number,
-              body: `✅ **Magic successful!** Frontier Model **Gemini 3.5 Flash** apnar jonno \`${fileName}\` file ti successfully high-quality formatting e generate kore repository te add kore diyeche. Code tab e check korun!`
-            });
+            // Comment on github issue (ফিক্স: ম্যানুয়াল রানে ইস্যু নাম্বার থাকে না, তাই চেক করে নেওয়া হলো)
+            if (context.issue?.number) {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: context.issue.number,
+                body: `✅ **Magic successful!** Frontier Model **Gemini 3.5 Flash** apnar jonno \`${fileName}\` file ti successfully high-quality formatting e generate kore repository te add kore diyeche. Code tab e check korun!`
+              });
+            } else {
+              console.log("ℹ️ Manual run detected. Skipping issue comment.");
+            }
 
       - name: Commit and Push changes
         uses: stefanzweifel/git-auto-commit-action@v5
