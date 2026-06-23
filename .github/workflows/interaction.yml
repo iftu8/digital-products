@@ -16,7 +16,7 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Generate Code with Gemini AI
+      - name: Generate Code with Gemini 3.5 Flash
         uses: actions/github-script@v7
         env:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
@@ -27,22 +27,30 @@ jobs:
             const issueBody = context.payload.issue.body || "Write the code for this.";
             
             const fileName = issueTitle.replace('create-file:', '').trim();
-            const modelName = "gemini-1.5-flash"; 
+            
+            // Upgraded to Gemini 3.5 Flash for maximum accuracy and error-free output
+            const modelName = "gemini-3.5-flash"; 
             const url = `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent?key=${process.env.GEMINI_API_KEY}`;
             
             const payload = {
               contents: [{
-                parts: [{ text: `You are an expert programmer. Write the exact source code for this request. DO NOT include any markdown code blocks (like \`\`\`python, \`\`\`js or \`\`\`), do not include explanations. Return ONLY the raw code text. Request: ${issueBody}` }]
+                parts: [{ text: `You are an expert production-grade software engineer. Write the exact source code for this request. 
+                CRITICAL RULES:
+                1. DO NOT include any markdown code blocks (like \`\`\`python, \`\`\`javascript, or \`\`\`).
+                2. DO NOT include any explanations, introduction, or outro text.
+                3. Return ONLY the raw code text so it can be directly saved into a file.
+                
+                Request: ${issueBody}` }]
               }]
             };
 
             let data;
             let success = false;
-            const maxRetries = 3; // সার্ভার বিজি থাকলে সর্বোচ্চ ৩ বার ট্রাই করবে
+            const maxRetries = 3;
 
             for (let attempt = 1; attempt <= maxRetries; attempt++) {
               try {
-                console.log(`Attempt ${attempt}: Calling Gemini API for ${fileName}...`);
+                console.log(`Attempt ${attempt}: Calling Gemini 3.5 Flash API for ${fileName}...`);
                 const response = await fetch(url, {
                   method: 'POST',
                   headers: { 'Content-Type': 'application/json' },
@@ -51,7 +59,7 @@ jobs:
 
                 data = await response.json();
                 
-                // যদি 503 Overload Error আসে, তবে ১০ সেকেন্ড ওয়েট করে আবার ট্রাই করবে
+                // 503 error handled securely
                 if (response.status === 503) {
                   console.warn("⚠️ Server is currently overloaded (503). Waiting 10 seconds before retrying...");
                   await new Promise(resolve => setTimeout(resolve, 10000));
@@ -67,11 +75,11 @@ jobs:
                 }
                 
                 success = true;
-                break; // সফল হলে লুপ থেকে বের হয়ে যাবে
+                break;
 
               } catch (error) {
                 if (attempt === maxRetries) {
-                  throw error; // ৩ বার ট্রাই করার পরও না হলে ফাইনাল এরর থ্রো করবে
+                  throw error;
                 }
                 console.warn(`⚠️ Attempt ${attempt} failed: ${error.message}. Retrying in 5 seconds...`);
                 await new Promise(resolve => setTimeout(resolve, 5000));
@@ -84,24 +92,24 @@ jobs:
             
             let generatedCode = data.candidates[0].content.parts[0].text;
             
-            // Clean-up markdown
+            // Clean-up any unexpected markdown formatting
             generatedCode = generatedCode.replace(/^```[a-zA-Z0-9+#-]*\s*\n/i, '');
             generatedCode = generatedCode.replace(/\n```\s*$/i, '');
             generatedCode = generatedCode.trim();
 
-            // ফাইল তৈরি করা
+            // File create step
             fs.writeFileSync(fileName, generatedCode);
             console.log(`✅ Successfully created file: ${fileName}`);
 
-            // কমেন্ট করা
+            // Comment on github issue
             await github.rest.issues.createComment({
               owner: context.repo.owner,
               repo: context.repo.repo,
               issue_number: context.issue.number,
-              body: `✅ **Magic successful!** AI apnar jonno \`${fileName}\` file ti auto-generate kore repository te add kore diyeche. Code tab e giye check korun!`
+              body: `✅ **Magic successful!** Frontier Model **Gemini 3.5 Flash** apnar jonno \`${fileName}\` file ti successfully high-quality formatting e generate kore repository te add kore diyeche. Code tab e check korun!`
             });
 
       - name: Commit and Push changes
         uses: stefanzweifel/git-auto-commit-action@v5
         with:
-          commit_message: "Auto-generated file by AI [skip ci]"
+          commit_message: "Auto-generated file by Gemini 3.5 Flash [skip ci]"
