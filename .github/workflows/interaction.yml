@@ -20,78 +20,96 @@ jobs:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
         with:
           script: |
-            const fs = require('fs');
-            const path = require('path');
-            const issueTitle = context.payload.issue.title || 'Untitled';
-            const issueBody = context.payload.issue.body || 'Please provide maximum detailed output.';
+            const fs = require("fs");
+            const path = require("path");
+            const issueTitle = context.payload.issue.title || "Untitled";
+            const issueBody = context.payload.issue.body || "Please provide maximum detailed output.";
 
-            let fileName = 'README.md';
-            if (issueTitle.includes(':')) {
-              fileName = issueTitle.split(':')[1].trim();
+            let fileName = "README.md";
+            if (issueTitle.includes(":")) {
+              fileName = issueTitle.split(":")[1].trim();
             } else {
               fileName = issueTitle.trim();
             }
 
-            fileName = fileName.replace(/[^a-zA-Z0-9.\-_/]/g, '');
-            if (!fileName) fileName = 'README.md';
+            fileName = fileName.replace(/[^a-zA-Z0-9.\-_/]/g, "");
+            if (!fileName) fileName = "README.md";
 
             const dir = path.dirname(fileName);
-            if (dir !== '.') {
+            if (dir !== ".") {
               fs.mkdirSync(dir, { recursive: true });
             }
 
-            const url = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=' + process.env.GEMINI_API_KEY;
+            const url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=" + process.env.GEMINI_API_KEY;
 
-            const promptText = 'You are an Ultimate AI Expert Engineer. Generate a MASSIVELY EXTENDED, highly detailed, production-ready output for the file: ' + fileName + '\n\nIssue Title: ' + issueTitle + '\nIssue Body: ' + issueBody + '\n\nCRITICAL INSTRUCTIONS:\n1. Expand every single detail to its absolute maximum limit. Do NOT take any shortcuts.\n2. If it is a code file, write the complete, fully functional logic with deep comments.\n3. If it is a README or documentation, write an exhaustive guide with badges, setup steps, and features.\n4. Output ONLY the raw text/code to be saved in the file. Do NOT wrap the entire response in markdown code blocks.';
+            const promptText = "You are an Ultimate AI Expert Engineer. Generate a MASSIVELY EXTENDED, highly detailed, production-ready output for the file: " + fileName + "\n\nIssue Title: " + issueTitle + "\nIssue Body: " + issueBody + "\n\nCRITICAL INSTRUCTIONS:\n1. Expand every single detail to its absolute maximum limit.\n2. Write complete, functional logic with deep comments.\n3. Output ONLY the raw text/code to be saved. No markdown code blocks wrapping the whole output.";
 
-            try {
-              const response = await fetch(url, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                  contents: [{ parts: [{ text: promptText }] }],
-                  generationConfig: {
-                    maxOutputTokens: 8192,
-                    temperature: 0.3
-                  }
-                })
-              });
+            const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+            let success = false;
+            let lastError = "";
+            let generatedCode = "";
 
-              const data = await response.json();
-              if (!response.ok) {
-                throw new Error(data.error?.message || JSON.stringify(data));
+            for (let attempt = 1; attempt <= 3; attempt++) {
+              try {
+                console.log("Attempt " + attempt + " to contact Gemini API...");
+                const response = await fetch(url, {
+                  method: "POST",
+                  headers: { "Content-Type": "application/json" },
+                  body: JSON.stringify({
+                    contents: [{ parts: [{ text: promptText }] }],
+                    generationConfig: {
+                      maxOutputTokens: 8192,
+                      temperature: 0.3
+                    }
+                  })
+                });
+
+                const data = await response.json();
+                
+                if (!response.ok) {
+                  throw new Error(data.error?.message || "Unknown API Error");
+                }
+                
+                if (!data.candidates || data.candidates.length === 0) {
+                  throw new Error("No content returned. Might be safety filters.");
+                }
+
+                generatedCode = data.candidates[0].content.parts[0].text;
+                generatedCode = generatedCode.replace(/^```[a-zA-Z]*\n/i, "").replace(/
+```\s*$/, "").trim();
+                
+                success = true;
+                console.log("Successfully generated content on attempt " + attempt);
+                break;
+                
+              } catch (err) {
+                lastError = err.message;
+                console.log("Attempt " + attempt + " failed: " + lastError);
+                if (attempt < 3) {
+                  console.log("Server busy or error. Waiting 15 seconds before retrying...");
+                  await delay(15000);
+                }
               }
+            }
 
-              if (!data.candidates || data.candidates.length === 0) {
-                throw new Error('AI did not return any content. It might have been blocked by safety filters.');
-              }
-
-              let generatedCode = data.candidates[0].content.parts[0].text;
-              
-              generatedCode = generatedCode.replace(/^```[a-zA-Z]*\n/i, '').replace(/
-```\s*$/, '').trim();
-
-              fs.writeFileSync(fileName, generatedCode);
-
+            if (!success) {
               await github.rest.issues.createComment({
                 owner: context.repo.owner,
                 repo: context.repo.repo,
                 issue_number: context.issue.number,
-                body: '🔥 **ULTRA MAGIC SUCCESSFUL!** AI has deeply analyzed your request and auto-generated the file `' + fileName + '` with maximum extended output.'
+                body: "❌ **AI Generation Failed after 3 attempts!** Server is overloaded or API failed. Error details: " + lastError
               });
-              
-            } catch (error) {
-              console.error('Generation Error:', error);
-              
-              await github.rest.issues.createComment({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                issue_number: context.issue.number,
-                body: '❌ **AI Generation Failed!** Please check the GitHub Actions logs. Error details: ' + error.message
-              });
-              
               process.exit(1);
             }
+
+            fs.writeFileSync(fileName, generatedCode);
+
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+              body: "🔥 **ULTRA MAGIC SUCCESSFUL!** AI has deeply analyzed your request and auto-generated the file: " + fileName + " with maximum extended output."
+            });
 
       - name: Commit and Push changes
         uses: stefanzweifel/git-auto-commit-action@v5
