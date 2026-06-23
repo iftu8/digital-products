@@ -21,76 +21,61 @@ jobs:
         with:
           script: |
             const fs = require('fs');
-            const issueTitle = context.payload.issue.title || "Untitled Issue";
-            const issueBody = context.payload.issue.body || "Please generate the most comprehensive code or documentation for this project.";
+            const issueTitle = context.payload.issue.title || 'Untitled';
+            const issueBody = context.payload.issue.body || 'Please provide maximum detailed output.';
 
-            // স্মার্ট ফাইল নেম ডিটেকশন (যেকোনো ইস্যু থেকে অটোমেটিক ফাইলের নাম বুঝবে)
-            let fileName = "README.md";
+            // ফাইলের নাম স্মার্টলি বের করা
+            let fileName = 'README.md';
             if (issueTitle.includes(':')) {
-              // যদি 'Task: app.py' বা 'Create: index.html' টাইপের কিছু দেন
               fileName = issueTitle.split(':')[1].trim();
-            } else if (issueTitle.match(/\.[a-zA-Z0-9]+$/)) {
-              // যদি টাইটেলে সরাসরি '.py', '.js', '.md' থাকে
-              const words = issueTitle.split(' ');
-              fileName = words[words.length - 1].trim();
             }
-            
-            // ফাইলের নামে কোনো অবৈধ ক্যারেক্টার থাকলে ক্লিন করা
+
+            // ফাইলের নামে কোনো অবৈধ চিহ্ন থাকলে বাদ দেওয়া
             fileName = fileName.replace(/[^a-zA-Z0-9.\-_]/g, '');
-            if (!fileName) fileName = "README.md";
+            if (!fileName) fileName = 'README.md';
 
-            // লেটেস্ট এবং ম্যাক্সিমাম পাওয়ারফুল এন্ডপয়েন্ট
-            const url = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=' + process.env.GEMINI_API_KEY;
+            // অফিশিয়াল এবং সবচেয়ে পাওয়ারফুল Gemini এন্ডপয়েন্ট
+            const url = '[https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=](https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=)' + process.env.GEMINI_API_KEY;
 
-            // আল্ট্রা-ম্যাক্স প্রম্পট (AI কে একদম সেরা আউটপুট দিতে বাধ্য করবে)
-            const promptText = `You are an Ultimate AI Expert Engineer. I will give you a request. 
-            You must generate an EXTREMELY EXTENDED, highly detailed, production-ready output for the file: "` + fileName + `".
-            
-            Issue Title: ` + issueTitle + `
-            Issue Body: ` + issueBody + `
-            
-            CRITICAL INSTRUCTIONS:
-            1. If it is a code file (e.g., Python, JS, HTML), write the complete, fully functional, and bug-free code. Add advanced features, error handling, and rich comments. Do NOT leave any part incomplete.
-            2. If it is documentation or a generic request, generate a massively detailed markdown format with beautiful structure, modern badges, feature lists, step-by-step guides, and explanations. Expand every single point to its absolute limit.
-            3. STRICT OUTPUT RULE: Return ONLY the raw content to be saved directly into the file. Do NOT wrap the entire response in markdown code blocks (like \`\`\`python). Do NOT add greetings or explanations outside the file content.`;
+            // আল্ট্রা-ম্যাক্স প্রম্পট (AI কে সেরা আউটপুট দিতে বাধ্য করার জন্য)
+            const promptText = 'You are an Ultimate AI Expert Engineer. Generate a MASSIVELY EXTENDED, highly detailed, production-ready output for the file: ' + fileName + '\n\nIssue Title: ' + issueTitle + '\nIssue Body: ' + issueBody + '\n\nCRITICAL INSTRUCTIONS:\n1. Expand every single detail to its absolute maximum limit. Do NOT take any shortcuts.\n2. If it is a code file, write the complete, fully functional logic with deep comments.\n3. If it is a README or documentation, write an exhaustive guide with badges, setup steps, and features.\n4. Output ONLY the raw text/code to be saved in the file. Do NOT wrap the entire response in markdown code blocks.';
 
-            // API কল (Maximum Token & Precision)
+            // API কল মেক করা (Maximum Tokens)
             const response = await fetch(url, {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({
                 contents: [{ parts: [{ text: promptText }] }],
                 generationConfig: {
-                  maxOutputTokens: 8192, // একদম সর্বোচ্চ আউটপুট লিমিট
-                  temperature: 0.3       // কোড এবং লেখার কোয়ালিটি নিখুঁত রাখার জন্য
+                  maxOutputTokens: 8192,
+                  temperature: 0.3
                 }
               })
             });
 
             const data = await response.json();
             if (!response.ok) {
-              console.error("API Error Details:", JSON.stringify(data, null, 2));
-              throw new Error("API Error: Token problem or endpoint failure.");
+              console.error('API Error:', JSON.stringify(data));
+              throw new Error('API Request Failed');
             }
 
-            let generatedContent = data.candidates[0].content.parts[0].text;
+            let generatedCode = data.candidates[0].content.parts[0].text;
             
-            // AI এরর করে ব্যাকটিক (```) দিলে তা অটোমেটিক ক্লিন করা
-            generatedCode = generatedContent.replace(/^
-```[a-z]*\n/i, '').replace(/```\s*$/, '').trim();
+            // AI এরর করে ব্যাকটিক দিলে তা ক্লিন করার ফিল্টার
+            generatedCode = generatedCode.replace(/^```[a-zA-Z]*\n/i, '').replace(/```\s*$/, '').trim();
 
-            // রিপোজিটরিতে ফাইল সেভ করা
+            // প্রজেক্টে ফাইলটি সেভ করা
             fs.writeFileSync(fileName, generatedCode);
 
-            // সাকসেস মেসেজ কমেন্ট করা
+            // সফল হলে কমেন্ট করা
             await github.rest.issues.createComment({
               owner: context.repo.owner,
               repo: context.repo.repo,
               issue_number: context.issue.number,
-              body: "🎉 **Ultimate Magic Successful!**\n\nAI has automatically analyzed your issue and created/updated the file `" + fileName + "` with highly extended and professional content. Check the code repository!"
+              body: '🔥 **ULTRA MAGIC SUCCESSFUL!** AI has deeply analyzed your request and auto-generated the file `' + fileName + '` with maximum extended output.'
             });
 
       - name: Commit and Push changes
         uses: stefanzweifel/git-auto-commit-action@v5
         with:
-          commit_message: "Auto-generated maximum output by AI"
+          commit_message: "Auto-generated maximum extended output by AI"
