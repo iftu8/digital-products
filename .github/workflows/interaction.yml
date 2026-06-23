@@ -8,9 +8,7 @@ on:
 jobs:
   generate-code:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
-    
-    if: github.event_name == 'workflow_dispatch' || (github.event_name == 'issues' && startsWith(github.event.issue.title, 'create-file:'))
+    if: startsWith(github.event.issue.title, 'create-file:')
     permissions:
       issues: write
       contents: write
@@ -18,126 +16,100 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Generate Code with Gemini API
+      - name: Generate Code with Gemini 3.5 Flash
         uses: actions/github-script@v7
         env:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
         with:
           script: |
             const fs = require('fs');
+            const issueTitle = context.payload.issue.title;
+            const issueBody = context.payload.issue.body || "Write the code for this.";
             
-            // 1. API Key Validation
-            if (!process.env.GEMINI_API_KEY) {
-              console.error("❌ ERROR: GEMINI_API_KEY is not set!");
-              process.exit(1);
-            }
-
-            // 2. Extract Data
-            const issueTitle = context.payload.issue?.title || "create-file: manual_test.js";
-            const issueBody = context.payload.issue?.body || "console.log('Success!');";
+            const fileName = issueTitle.replace('create-file:', '').trim();
             
-            let fileName = issueTitle.replace('create-file:', '').trim();
-            if (!fileName) fileName = "untitled.txt";
-
-            console.log(`ℹ️ Target File: ${fileName}`);
-
-            // 3. Setup Payload (Max Output Problem Solved Here)
+            // Upgraded to Gemini 3.5 Flash for maximum accuracy and error-free output
+            const modelName = "gemini-3.5-flash"; 
+            const url = `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent?key=${process.env.GEMINI_API_KEY}`;
+            
             const payload = {
               contents: [{
                 parts: [{ text: `You are an expert production-grade software engineer. Write the exact source code for this request. 
                 CRITICAL RULES:
-                1. DO NOT include any markdown code blocks.
-                2. DO NOT include any explanations.
-                3. Return ONLY the raw code text.
+                1. DO NOT include any markdown code blocks (like \`\`\`python, \`\`\`javascript, or \`\`\`).
+                2. DO NOT include any explanations, introduction, or outro text.
+                3. Return ONLY the raw code text so it can be directly saved into a file.
+                
                 Request: ${issueBody}` }]
-              }],
-              generationConfig: {
-                maxOutputTokens: 8192, // <--- এটি বড় কোড জেনারেট করার জন্য ম্যাক্সিমাম আউটপুট সেট করবে
-                temperature: 0.2
-              }
+              }]
             };
 
-            // 4. Bulletproof Auto-Fallback Logic (সলভ করবে 404 Error)
-            const modelsToTry = ["gemini-1.5-flash-latest", "gemini-1.5-pro-latest", "gemini-1.0-pro", "gemini-pro"];
-            let data = null;
+            let data;
             let success = false;
+            const maxRetries = 3;
 
-            for (const modelName of modelsToTry) {
-              if (success) break; // যদি একটা মডেলে কাজ হয়ে যায়, তবে আর অন্য মডেল খুঁজবে না
-              console.log(`\n=========================================`);
-              console.log(`🚀 Trying Model: ${modelName}`);
+            for (let attempt = 1; attempt <= maxRetries; attempt++) {
+              try {
+                console.log(`Attempt ${attempt}: Calling Gemini 3.5 Flash API for ${fileName}...`);
+                const response = await fetch(url, {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify(payload)
+                });
 
-              const url = `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent?key=${process.env.GEMINI_API_KEY}`;
-              const maxRetries = 5; 
-
-              for (let attempt = 1; attempt <= maxRetries; attempt++) {
-                console.log(`🔄 Attempt ${attempt} for ${modelName}...`);
-                const controller = new AbortController();
-                const timeoutId = setTimeout(() => controller.abort(), 120000); // 2 মিনিট টাইমআউট
-
-                try {
-                  const response = await fetch(url, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify(payload),
-                    signal: controller.signal
-                  });
-                  
-                  clearTimeout(timeoutId);
-                  const responseText = await response.text();
-                  
-                  if (!response.ok) {
-                    // 404 পেলে অন্য মডেলে চলে যাবে
-                    if (response.status === 404) {
-                      console.warn(`⚠️ Model ${modelName} not found or supported by your API Key. Switching to next model...`);
-                      break; 
-                    }
-                    // সার্ভার ওভারলোড (429/503) পেলে কিছুক্ষণ অপেক্ষা করে আবার ট্রাই করবে
-                    if (response.status === 429 || response.status === 503) {
-                       const wait = response.status === 429 ? 20000 : 15000;
-                       console.warn(`⚠️ Server Busy. Waiting ${wait/1000}s...`);
-                       await new Promise(r => setTimeout(r, wait));
-                       continue; 
-                    }
-                    throw new Error(`API Error ${response.status}: ${responseText}`);
-                  }
-
-                  data = JSON.parse(responseText);
-                  if (!data.candidates) throw new Error("Empty response from AI.");
-                  
-                  success = true; 
-                  console.log(`✅ Successfully generated code using ${modelName}!`);
-                  break; 
-
-                } catch (error) {
-                  clearTimeout(timeoutId);
-                  console.warn(`⚠️ Attempt ${attempt} failed: ${error.message}`);
-                  if (attempt === maxRetries) {
-                    console.log(`❌ Giving up on ${modelName}. Trying next...`);
-                  } else {
-                    await new Promise(r => setTimeout(r, attempt * 5000));
-                  }
+                data = await response.json();
+                
+                // 503 error handled securely
+                if (response.status === 503) {
+                  console.warn("⚠️ Server is currently overloaded (503). Waiting 10 seconds before retrying...");
+                  await new Promise(resolve => setTimeout(resolve, 10000));
+                  continue; 
                 }
+
+                if (!response.ok) {
+                  throw new Error(`API Error ${response.status}: ${data.error?.message || 'Unknown'}`);
+                }
+
+                if (!data.candidates || !data.candidates[0]?.content?.parts?.[0]?.text) {
+                  throw new Error("API did not return text. Check prompt or safety settings.");
+                }
+                
+                success = true;
+                break;
+
+              } catch (error) {
+                if (attempt === maxRetries) {
+                  throw error;
+                }
+                console.warn(`⚠️ Attempt ${attempt} failed: ${error.message}. Retrying in 5 seconds...`);
+                await new Promise(resolve => setTimeout(resolve, 5000));
               }
             }
 
-            if (!success) throw new Error("❌ ALL models and retries failed. Check your API Key.");
-            
-            // 5. Clean & Save
-            let generatedCode = data.candidates[0].content.parts[0].text;
-            generatedCode = generatedCode.replace(/^```[a-zA-Z0-9+#-]*\n?/gm, '').replace(/```$/gm, '').trim();
-
-            fs.writeFileSync(fileName, generatedCode);
-            console.log(`✅ File created: ${fileName}`);
-
-            if (context.issue?.number) {
-              await github.rest.issues.createComment({
-                owner: context.repo.owner, repo: context.repo.repo, issue_number: context.issue.number,
-                body: `✅ **Success!** Code generated for \`${fileName}\`.`
-              });
+            if (!success) {
+               throw new Error("Failed to generate code after maximum retries due to server overload.");
             }
+            
+            let generatedCode = data.candidates[0].content.parts[0].text;
+            
+            // Clean-up any unexpected markdown formatting
+            generatedCode = generatedCode.replace(/^```[a-zA-Z0-9+#-]*\s*\n/i, '');
+            generatedCode = generatedCode.replace(/\n```\s*$/i, '');
+            generatedCode = generatedCode.trim();
+
+            // File create step
+            fs.writeFileSync(fileName, generatedCode);
+            console.log(`✅ Successfully created file: ${fileName}`);
+
+            // Comment on github issue
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+              body: `✅ **Magic successful!** Frontier Model **Gemini 3.5 Flash** apnar jonno \`${fileName}\` file ti successfully high-quality formatting e generate kore repository te add kore diyeche. Code tab e check korun!`
+            });
 
       - name: Commit and Push changes
         uses: stefanzweifel/git-auto-commit-action@v5
         with:
-          commit_message: "Auto-generated file by AI [skip ci]"
+          commit_message: "Auto-generated file by Gemini 3.5 Flash [skip ci]"
