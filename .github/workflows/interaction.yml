@@ -7,8 +7,7 @@ on:
 jobs:
   generate-code:
     runs-on: ubuntu-latest
-    # create-file, build-product, build-project তিনটির জন্যই কাজ করবে
-    if: startsWith(github.event.issue.title, 'create-file:') || startsWith(github.event.issue.title, 'build-product:') || startsWith(github.event.issue.title, 'build-project:')
+    if: startsWith(github.event.issue.title, 'create-file:')
     permissions:
       issues: write
       contents: write
@@ -24,40 +23,21 @@ jobs:
           script: |
             const fs = require('fs');
             const issueTitle = context.payload.issue.title;
-            const issueBody = context.payload.issue.body || "Write the code or documentation for this.";
+            const issueBody = context.payload.issue.body || "Write the code for this.";
             
-            // ফাইলের নাম ডাইনামিক্যালি বের করা
-            let fileName = "README.md";
-            if (issueTitle.includes('create-file:')) {
-              fileName = issueTitle.split('create-file:')[1].trim();
-            }
+            // File er nam ta issue er title theke ber kore ana
+            const fileName = issueTitle.replace('create-file:', '').trim();
 
-            // সঠিক Gemini API (1.5 Flash) ব্যবহার করা হলো
-            const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${process.env.GEMINI_API_KEY}`;
+            // Ekhane updated model Gemini 3.5 use kora holo
+            const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash:generateContent?key=${process.env.GEMINI_API_KEY}`;
             
-            // সেরা এবং এক্সটেন্ডেড আউটপুটের জন্য প্রম্পট
-            const prompt = `You are an expert Senior Programmer and Technical Writer. 
-            Generate an absolutely extended, highly detailed, and complete output for the file: "${fileName}".
-            
-            Issue Title: ${issueTitle}
-            Issue Body: ${issueBody}
-            
-            CRITICAL RULES:
-            1. If it's a code file (like .py, .js), write the full production-ready code with extreme detail and comments. DO NOT leave anything incomplete.
-            2. If it's a README.md, write a highly professional, beautifully structured markdown file with features, setup instructions, and badges.
-            3. DO NOT include markdown code blocks (like \`\`\`python) around the entire output. Return ONLY the raw code/text so it can be directly saved into the file. No greetings, no explanations.`;
-
             const response = await fetch(url, {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({
                 contents: [{
-                  parts: [{ text: prompt }]
-                }],
-                generationConfig: {
-                  maxOutputTokens: 8192, // বড় এবং এক্সটেন্ডেড আউটপুট পাওয়ার জন্য
-                  temperature: 0.3
-                }
+                  parts: [{ text: `You are an expert programmer. Write the exact code for this request. DO NOT include markdown code blocks like \`\`\`python or any explanations. Return ONLY the raw code text so it can be directly saved into a file. Request: ${issueBody}` }]
+                }]
               })
             });
 
@@ -69,22 +49,21 @@ jobs:
             
             let generatedCode = data.candidates[0].content.parts[0].text;
             
-            // Markdown ট্যাগ থাকলে তা ক্লিন করা
-            generatedCode = generatedCode.replace(/^```[a-z]*\n/i, '').replace(/
-```$/i, '').trim();
+            // Markdown tag thakle remove kore dewa
+            generatedCode = generatedCode.replace(/^```[a-z]*\n/i, '').replace(/```$/i, '');
 
-            // ফাইলটি তৈরি করা
+            // File ta toiri kora
             fs.writeFileSync(fileName, generatedCode);
 
-            // GitHub Issue-তে কমেন্ট করা
+            // GitHub Issue te comment kora
             await github.rest.issues.createComment({
               owner: context.repo.owner,
               repo: context.repo.repo,
               issue_number: context.issue.number,
-              body: `✅ Magic successful! AI apnar jnno \`${fileName}\` file ti extended detail-e auto-generate kore repository te add kore diyeche. Code tab-e giye check korun!`
+              body: `✅ Magic successful! AI apnar jnno \`${fileName}\` file ti auto-generate kore repository te add kore diyeche. Code tab e giye check korun!`
             });
 
       - name: Commit and Push changes
         uses: stefanzweifel/git-auto-commit-action@v5
         with:
-          commit_message: "Auto-generated ${fileName} by AI"
+          commit_message: "Auto-generated file by AI"
