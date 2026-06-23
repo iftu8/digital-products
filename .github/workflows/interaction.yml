@@ -8,8 +8,10 @@ on:
 jobs:
   generate-code:
     runs-on: ubuntu-latest
-    # ফিক্স: ম্যানুয়ালি রান করলে অথবা ইস্যু টাইটেল মিললে তবেই রান করবে
-    if: github.event_name == 'workflow_dispatch' || startsWith(github.event.issue.title, 'create-file:')
+    timeout-minutes: 15 # Extended duration: পুরো জবের জন্য ১৫ মিনিট সময় দেওয়া হলো
+    
+    # ফিক্সড: ম্যানুয়াল রান অথবা ইস্যু থেকে কল হলে তবেই কাজ করবে (কোনো Error আসবে না)
+    if: github.event_name == 'workflow_dispatch' || (github.event_name == 'issues' && startsWith(github.event.issue.title, 'create-file:'))
     permissions:
       issues: write
       contents: write
@@ -25,15 +27,25 @@ jobs:
           script: |
             const fs = require('fs');
             
-            // ফিক্স: ম্যানুয়ালি রান করলে এরর না দিয়ে ডিফল্ট টেস্ট ফাইল বানাবে (?.) ব্যবহার করে
-            const issueTitle = context.payload.issue?.title || "create-file: test_manual.txt";
-            const issueBody = context.payload.issue?.body || "Write a simple Hello World in Python.";
+            // 1. API Key Validation
+            if (!process.env.GEMINI_API_KEY) {
+              console.error("❌ ERROR: GEMINI_API_KEY is not set in GitHub Secrets!");
+              process.exit(1);
+            }
+
+            // 2. Safe Payload Extraction for Manual & Issue trigger
+            const issueTitle = context.payload.issue?.title || "create-file: test_manual_extended.js";
+            const issueBody = context.payload.issue?.body || "console.log('Hello from robust manual test run!');";
             
-            const fileName = issueTitle.replace('create-file:', '').trim();
-            
-            // Upgraded to Gemini 3.5 Flash for maximum accuracy and error-free output
+            let fileName = issueTitle.replace('create-file:', '').trim();
+            if (!fileName) fileName = "untitled_generated_file.txt";
+
+            console.log(`ℹ️ Event Trigger: ${context.eventName}`);
+            console.log(`ℹ️ Target File: ${fileName}`);
+
+            // 3. API Setup (Using Gemini 3.5 Flash)
             const modelName = "gemini-3.5-flash"; 
-            const url = `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent?key=${process.env.GEMINI_API_KEY}`;
+            const url = `[https://generativelanguage.googleapis.com/v1beta/models/$](https://generativelanguage.googleapis.com/v1beta/models/$){modelName}:generateContent?key=${process.env.GEMINI_API_KEY}`;
             
             const payload = {
               contents: [{
@@ -47,74 +59,109 @@ jobs:
               }]
             };
 
-            let data;
+            // 4. Extended Retry & Advanced Timeout Logic
+            let data = null;
             let success = false;
-            const maxRetries = 3;
+            const maxRetries = 5; // Retries বাড়ানো হয়েছে
+            const fetchTimeoutMs = 60000; // প্রতি রিকোয়েস্টে সর্বোচ্চ ৬০ সেকেন্ড অপেক্ষা করবে
 
             for (let attempt = 1; attempt <= maxRetries; attempt++) {
+              console.log(`\n🚀 Attempt ${attempt} of ${maxRetries}: Calling Gemini 3.5 Flash API...`);
+              
+              const controller = new AbortController();
+              const timeoutId = setTimeout(() => controller.abort(), fetchTimeoutMs);
+
               try {
-                console.log(`Attempt ${attempt}: Calling Gemini 3.5 Flash API for ${fileName}...`);
                 const response = await fetch(url, {
                   method: 'POST',
                   headers: { 'Content-Type': 'application/json' },
-                  body: JSON.stringify(payload)
+                  body: JSON.stringify(payload),
+                  signal: controller.signal
                 });
-
-                data = await response.json();
                 
-                // 503 error handled securely
-                if (response.status === 503) {
-                  console.warn("⚠️ Server is currently overloaded (503). Waiting 10 seconds before retrying...");
-                  await new Promise(resolve => setTimeout(resolve, 10000));
-                  continue; 
+                clearTimeout(timeoutId);
+
+                const responseText = await response.text();
+                
+                // Handling Rate Limits (429) & Server Overload (503)
+                if (!response.ok) {
+                  if (response.status === 429 || response.status === 503) {
+                     const waitTime = response.status === 429 ? 15000 : 10000;
+                     console.warn(`⚠️ Server Busy (${response.status}). Waiting ${waitTime/1000}s before retrying...`);
+                     await new Promise(resolve => setTimeout(resolve, waitTime));
+                     continue;
+                  }
+                  
+                  let errorMsg = responseText;
+                  try {
+                    const errJson = JSON.parse(responseText);
+                    errorMsg = errJson.error?.message || responseText;
+                  } catch(e) { } // If not JSON, use raw text
+                  
+                  throw new Error(`API Error ${response.status}: ${errorMsg}`);
                 }
 
-                if (!response.ok) {
-                  throw new Error(`API Error ${response.status}: ${data.error?.message || 'Unknown'}`);
-                }
+                // Parse JSON on success
+                data = JSON.parse(responseText);
 
                 if (!data.candidates || !data.candidates[0]?.content?.parts?.[0]?.text) {
-                  throw new Error("API did not return text. Check prompt or safety settings.");
+                  throw new Error("API returned an empty response or was blocked by safety filters.");
                 }
                 
                 success = true;
                 break;
 
               } catch (error) {
+                clearTimeout(timeoutId);
+                
+                if (error.name === 'AbortError') {
+                  console.warn(`⚠️ Attempt ${attempt} timed out after ${fetchTimeoutMs/1000} seconds.`);
+                } else {
+                  console.warn(`⚠️ Attempt ${attempt} failed: ${error.message}`);
+                }
+                
                 if (attempt === maxRetries) {
+                  console.error("❌ Maximum retries reached. Failing workflow.");
                   throw error;
                 }
-                console.warn(`⚠️ Attempt ${attempt} failed: ${error.message}. Retrying in 5 seconds...`);
-                await new Promise(resolve => setTimeout(resolve, 5000));
+                
+                // Exponential Backoff: প্রতিবার ফেইল করলে আরও বেশি সময় অপেক্ষা করবে
+                const backoffTime = attempt * 5000;
+                console.log(`⏳ Retrying in ${backoffTime/1000} seconds...`);
+                await new Promise(resolve => setTimeout(resolve, backoffTime));
               }
             }
 
             if (!success) {
-               throw new Error("Failed to generate code after maximum retries due to server overload.");
+               throw new Error("❌ Failed to generate code. Check logs for details.");
             }
             
+            // 5. Clean & Save Result
             let generatedCode = data.candidates[0].content.parts[0].text;
             
-            // Clean-up any unexpected markdown formatting
+            // ফিক্সড: এই লাইনেই আগেরবার এন্টার দেওয়ার কারণে সিনট্যাক্স এরর (Failure) আসতো
             generatedCode = generatedCode.replace(/^```[a-zA-Z0-9+#-]*\s*\n/i, '');
-            generatedCode = generatedCode.replace(/\n
-```\s*$/i, '');
+            generatedCode = generatedCode.replace(/\n```\s*$/i, '');
             generatedCode = generatedCode.trim();
 
-            // File create step
             fs.writeFileSync(fileName, generatedCode);
             console.log(`✅ Successfully created file: ${fileName}`);
 
-            // Comment on github issue (ফিক্স: ম্যানুয়াল রানে ইস্যু নাম্বার থাকে না, তাই চেক করে নেওয়া হলো)
+            // 6. Post Issue Comment Safely
             if (context.issue?.number) {
-              await github.rest.issues.createComment({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                issue_number: context.issue.number,
-                body: `✅ **Magic successful!** Frontier Model **Gemini 3.5 Flash** apnar jonno \`${fileName}\` file ti successfully high-quality formatting e generate kore repository te add kore diyeche. Code tab e check korun!`
-              });
+              try {
+                await github.rest.issues.createComment({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  issue_number: context.issue.number,
+                  body: `✅ **Magic successful!** The **Gemini 3.5 Flash** model has generated the code for \`${fileName}\` and added it to the repository. Please check the Code tab!`
+                });
+                console.log("✅ Comment posted to issue.");
+              } catch (commentErr) {
+                console.warn(`⚠️ File generated, but failed to post comment: ${commentErr.message}`);
+              }
             } else {
-              console.log("ℹ️ Manual run detected. Skipping issue comment.");
+              console.log("ℹ️ Manual dispatch. Skipping issue comment.");
             }
 
       - name: Commit and Push changes
