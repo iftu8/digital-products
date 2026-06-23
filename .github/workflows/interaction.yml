@@ -9,73 +9,71 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       issues: write
-      contents: write
+      contents: read
+
     steps:
-      - name: Checkout code
+      - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Generate Content with Ultra AI
+      - name: Generate Content with Gemini AI
         uses: actions/github-script@v7
         env:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
         with:
           script: |
-            const fs = require('fs');
-            const issueTitle = context.payload.issue.title || 'Untitled';
-            const issueBody = context.payload.issue.body || 'Please provide maximum detailed output.';
-
-            // ফাইলের নাম স্মার্টলি বের করা
-            let fileName = 'README.md';
-            if (issueTitle.includes(':')) {
-              fileName = issueTitle.split(':')[1].trim();
-            }
-
-            // ফাইলের নামে কোনো অবৈধ চিহ্ন থাকলে বাদ দেওয়া
-            fileName = fileName.replace(/[^a-zA-Z0-9.\-_]/g, '');
-            if (!fileName) fileName = 'README.md';
-
-            // অফিশিয়াল এবং সবচেয়ে পাওয়ারফুল Gemini এন্ডপয়েন্ট
-            const url = '[https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=](https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=)' + process.env.GEMINI_API_KEY;
-
-            // আল্ট্রা-ম্যাক্স প্রম্পট (AI কে সেরা আউটপুট দিতে বাধ্য করার জন্য)
-            const promptText = 'You are an Ultimate AI Expert Engineer. Generate a MASSIVELY EXTENDED, highly detailed, production-ready output for the file: ' + fileName + '\n\nIssue Title: ' + issueTitle + '\nIssue Body: ' + issueBody + '\n\nCRITICAL INSTRUCTIONS:\n1. Expand every single detail to its absolute maximum limit. Do NOT take any shortcuts.\n2. If it is a code file, write the complete, fully functional logic with deep comments.\n3. If it is a README or documentation, write an exhaustive guide with badges, setup steps, and features.\n4. Output ONLY the raw text/code to be saved in the file. Do NOT wrap the entire response in markdown code blocks.';
-
-            // API কল মেক করা (Maximum Tokens)
-            const response = await fetch(url, {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({
-                contents: [{ parts: [{ text: promptText }] }],
-                generationConfig: {
-                  maxOutputTokens: 8192,
-                  temperature: 0.3
-                }
-              })
-            });
-
-            const data = await response.json();
-            if (!response.ok) {
-              console.error('API Error:', JSON.stringify(data));
-              throw new Error('API Request Failed');
-            }
-
-            let generatedCode = data.candidates[0].content.parts[0].text;
+            const issueTitle = context.payload.issue.title;
+            const issueBody = context.payload.issue.body || "";
             
-            // AI এরর করে ব্যাকটিক দিলে তা ক্লিন করার ফিল্টার
-            generatedCode = generatedCode.replace(/^```[a-zA-Z]*\n/i, '').replace(/```\s*$/, '').trim();
+            // System prompt to force it to generate maximum output/code perfectly
+            const prompt = `You are an expert Python developer. Based on the following GitHub issue request, generate a fully functional, high-quality, and complete Python Snake Game code. Make sure to include all logic and maximize the output detail.\n\nIssue Title: ${issueTitle}\nIssue Description: ${issueBody}`;
+            
+            const apiKey = process.env.GEMINI_API_KEY;
+            if (!apiKey) {
+              core.setFailed("Error: GEMINI_API_KEY secret is missing! Please add it in Repository Settings -> Secrets.");
+              return;
+            }
 
-            // প্রজেক্টে ফাইলটি সেভ করা
-            fs.writeFileSync(fileName, generatedCode);
+            // Correct URL format to avoid 'Failed to parse URL' error
+            const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`;
 
-            // সফল হলে কমেন্ট করা
-            await github.rest.issues.createComment({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              issue_number: context.issue.number,
-              body: '🔥 **ULTRA MAGIC SUCCESSFUL!** AI has deeply analyzed your request and auto-generated the file `' + fileName + '` with maximum extended output.'
-            });
+            try {
+              const response = await fetch(url, {
+                method: "POST",
+                headers: {
+                  "Content-Type": "application/json"
+                },
+                body: JSON.stringify({
+                  contents: [{
+                    parts: [{ text: prompt }]
+                  }]
+                })
+              });
 
-      - name: Commit and Push changes
-        uses: stefanzweifel/git-auto-commit-action@v5
-        with:
-          commit_message: "Auto-generated maximum extended output by AI"
+              if (!response.ok) {
+                const errorText = await response.text();
+                core.setFailed(`Gemini API Error: ${response.status} - ${errorText}`);
+                return;
+              }
+
+              const data = await response.json();
+              
+              if (!data.candidates || data.candidates.length === 0) {
+                core.setFailed("Gemini API did not return any candidates.");
+                return;
+              }
+              
+              const generatedText = data.candidates[0].content.parts[0].text;
+
+              // Reply back to the GitHub Issue with the generated Python Code
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: context.payload.issue.number,
+                body: `### 🐍 Generated Python Snake Game Code:\n\n${generatedText}`
+              });
+
+              console.log("Successfully generated code and commented on issue!");
+
+            } catch (error) {
+              core.setFailed(`Workflow failed with error: ${error.message}`);
+            }
