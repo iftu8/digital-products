@@ -7,94 +7,86 @@ on:
 jobs:
   generate-code:
     runs-on: ubuntu-latest
+    if: startsWith(github.event.issue.title, 'create-file:')
     permissions:
       issues: write
       contents: write
     steps:
-      - name: Checkout Repository
+      - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Generate Code with Gemini AI
+      - name: Generate Code with AI
         uses: actions/github-script@v7
         env:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
         with:
           script: |
             const fs = require('fs');
-            
-            // Issue details কালেক্ট করা
             const issueTitle = context.payload.issue.title;
-            const issueBody = context.payload.issue.body || "Write code for this request.";
+            const issueBody = context.payload.issue.body || "Write the code for this.";
             
-            // ১. স্মার্টলি ফাইলের নাম ডিটেক্ট করা (create-file: থাকলেও কাজ করবে, না থাকলেও অটো নাম নেবে)
-            let fileName = "solution.py";
-            if (issueTitle.toLowerCase().includes('create-file:')) {
-              fileName = issueTitle.replace(/create-file:/i, '').trim();
-            } else {
-              fileName = issueTitle.toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_|_$/g, '') + '.py';
-            }
-            if (!fileName || fileName === '.py') fileName = 'generated_code.py';
+            // ফাইল এর নাম টাইটেল থেকে এক্সট্রাক্ট করা
+            const fileName = issueTitle.replace('create-file:', '').trim();
 
-            // ২. API Key থেকে সব হিডেন স্পেস বা নিউলাইন ক্লিন করা (.trim)
-            const rawKey = process.env.GEMINI_API_KEY || "";
-            const apiKey = rawKey.trim();
+            // এখানে ১০০% ওয়ার্কিং এবং সুপার-ফাস্ট 'gemini-2.5-flash' মডেল সেট করা হয়েছে
+            const modelName = "gemini-2.5-flash"; 
+            const url = `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent?key=${process.env.GEMINI_API_KEY}`;
             
-            if (!apiKey) {
-              core.setFailed("❌ Error: GEMINI_API_KEY secret is missing in repository settings!");
-              return;
-            }
-
-            // ৩. একদম স্টেবল এবং লেটেস্ট অফিশিয়াল প্রোডাকশন মডেল ব্যবহার করা
-            const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`;
-            
-            // AI-কে কড়া নির্দেশনা যাতে সে শুধু র-কোড (raw code) দেয়
-            const prompt = `You are an expert programmer. Write the complete, raw, production-ready source code for this request. 
-            DO NOT wrap the code in markdown blocks like \`\`\`python. 
-            DO NOT write any introduction, conversational text, or explanation. 
-            Return ONLY the raw executable lines of code. 
-            
-            Request Details:
-            Title: ${issueTitle}
-            Body: ${issueBody}`;
-
             try {
-              console.log("Connecting to Gemini API...");
               const response = await fetch(url, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
-                  contents: [{ parts: [{ text: prompt }] }]
+                  contents: [{
+                    parts: [{ text: `You are an expert programmer. Write the exact source code for this request. DO NOT include any markdown code blocks (like \`\`\`python or \`\`\`), do not include explanations, intro, or outro text. Return ONLY the raw code text so it can be directly saved into a file. Request: ${issueBody}` }]
+                  }]
                 })
               });
 
+              const data = await response.json();
+              
               if (!response.ok) {
-                const errText = await response.text();
-                throw new Error(`API returned status ${response.status}: ${errText}`);
+                console.error("Gemini API Error Details:", JSON.stringify(data, null, 2));
+                throw new Error(`API returned status ${response.status}. Check Github Actions log.`);
               }
 
-              const data = await response.json();
-              let code = data.candidates[0].content.parts[0].text;
+              if (!data.candidates || !data.candidates[0]?.content?.parts?.[0]?.text) {
+                console.error("Invalid API Structure:", JSON.stringify(data, null, 2));
+                throw new Error("API did not return text. It might be blocked by safety settings.");
+              }
               
-              // ৪. সেফটি ফিল্টার: এআই যদি ভুল করেও markdown কোড ব্লক দেয়, তা রিমুভ করা
-              code = code.replace(/^```[a-z]*\n/i, '').replace(/```$/i, '').trim();
+              let generatedCode = data.candidates[0].content.parts[0].text;
               
-              // ৫. ফাইলটি সরাসরি রিপোজিটরিতে সেভ করা
-              fs.writeFileSync(fileName, code);
-              console.log(`Successfully saved code to ${fileName}`);
-              
-              // ৬. সাকসেস মেসেজ দিয়ে কমেন্ট করা
+              // প্রো-লেভেল ক্লিনআপ: কোনো কারণে AI ব্যাকটিক্স (```) দিলে তা নিখুঁতভাবে রিমুভ করবে
+              generatedCode = generatedCode.replace(/^```[a-zA-Z0-9+#-]*\s*\n/i, '');
+              generatedCode = generatedCode.replace(/\n```\s*$/i, '');
+              generatedCode = generatedCode.trim();
+
+              // ফাইল তৈরি ও রাইট করা
+              fs.writeFileSync(fileName, generatedCode);
+              console.log(`Successfully created file: ${fileName}`);
+
+              // সাকসেস মেসেজ কমেন্ট করা
               await github.rest.issues.createComment({
                 owner: context.repo.owner,
                 repo: context.repo.repo,
                 issue_number: context.issue.number,
-                body: `✅ **Magic Successful!** Gemini AI আপনার জন্য \`${fileName}\` ফাইলটি অটো-জেনারেট করে রিপোজিটরিতে যোগ করে দিয়েছে। কোড ট্যাবে গিয়ে চেক করুন!`
+                body: `✅ **Magic successful!** AI আপনার জন্য \`${fileName}\` ফাইলটি সাকসেসফুলি জেনারেট করে রিপোজিটরিতে অ্যাড করে দিয়েছে। কোড ট্যাবটি চেক করে দেখুন!`
               });
 
             } catch (error) {
-              core.setFailed(`Workflow Failed: ${error.message}`);
+              console.error("Execution failed:", error);
+              // কোনো এরর হলে তা সরাসরি ইস্যুর কমেন্টে জানিয়ে দেবে
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: context.issue.number,
+                body: `❌ **Error Occurred!** কোড জেনারেট করার সময় একটি সমস্যা হয়েছে।\n**Error Message:** \`${error.message}\``
+              });
+              core.setFailed(error.message);
             }
 
       - name: Commit and Push changes
         uses: stefanzweifel/git-auto-commit-action@v5
         with:
-          commit_message: "🤖 Auto-generated file by AI via Issue"
+          commit_message: "Auto-generated file by AI [skip ci]"
