@@ -4,11 +4,21 @@ on:
   issues:
     types: [opened, edited]
   workflow_dispatch:
+    inputs:
+      filename:
+        description: 'File name to create (e.g., script.py)'
+        required: false
+        default: 'generated_file.txt'
+      prompt:
+        description: 'What do you want to build?'
+        required: false
+        default: 'Write a basic hello world program'
 
 jobs:
   generate-code:
     runs-on: ubuntu-latest
-    if: startsWith(github.event.issue.title, 'create-file:')
+    # Fix for Skipped Issue: Runs if manually triggered OR if issue title matches 'create-file:'
+    if: github.event_name == 'workflow_dispatch' || (github.event_name == 'issues' && startsWith(github.event.issue.title, 'create-file:'))
     permissions:
       issues: write
       contents: write
@@ -23,12 +33,23 @@ jobs:
         with:
           script: |
             const fs = require('fs');
-            const issueTitle = context.payload.issue.title;
-            const issueBody = context.payload.issue.body || "Write the code for this.";
+            
+            let issueTitle, issueBody, issueNumber;
+            
+            // Checking if triggered manually or via Issue
+            if (context.eventName === 'workflow_dispatch') {
+              issueTitle = `create-file: ${context.payload.inputs?.filename || 'manual_file.txt'}`;
+              issueBody = context.payload.inputs?.prompt || "Write the code for this request.";
+              issueNumber = null;
+            } else {
+              issueTitle = context.payload.issue.title;
+              issueBody = context.payload.issue.body || "Write the code for this request.";
+              issueNumber = context.payload.issue.number;
+            }
             
             const fileName = issueTitle.replace('create-file:', '').trim();
             
-            // Upgraded to Gemini 3.5 Flash for maximum accuracy and error-free output
+            // Set strictly to Gemini 3.5 Flash as requested
             const modelName = "gemini-3.5-flash"; 
             const url = `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent?key=${process.env.GEMINI_API_KEY}`;
             
@@ -41,16 +62,20 @@ jobs:
                 3. Return ONLY the raw code text so it can be directly saved into a file.
                 
                 Request: ${issueBody}` }]
-              }]
+              }],
+              generationConfig: {
+                maxOutputTokens: 8192, // Fix for max output problem
+                temperature: 0.2 
+              }
             };
 
             let data;
             let success = false;
-            const maxRetries = 3;
+            const maxRetries = 4; // Better retry mechanism
 
             for (let attempt = 1; attempt <= maxRetries; attempt++) {
               try {
-                console.log(`Attempt ${attempt}: Calling Gemini 3.5 Flash API for ${fileName}...`);
+                console.log(`Attempt ${attempt}: Calling ${modelName} API for ${fileName}...`);
                 const response = await fetch(url, {
                   method: 'POST',
                   headers: { 'Content-Type': 'application/json' },
@@ -59,10 +84,11 @@ jobs:
 
                 data = await response.json();
                 
-                // 503 error handled securely
-                if (response.status === 503) {
-                  console.warn("⚠️ Server is currently overloaded (503). Waiting 10 seconds before retrying...");
-                  await new Promise(resolve => setTimeout(resolve, 10000));
+                // Advanced 503/429 server error handling securely
+                if (response.status === 503 || response.status === 429) {
+                  const waitTime = attempt * 5000; // Waits 5s, 10s, 15s...
+                  console.warn(`⚠️ Server overloaded (${response.status}). Waiting ${waitTime/1000}s before retry...`);
+                  await new Promise(resolve => setTimeout(resolve, waitTime));
                   continue; 
                 }
 
@@ -81,35 +107,47 @@ jobs:
                 if (attempt === maxRetries) {
                   throw error;
                 }
-                console.warn(`⚠️ Attempt ${attempt} failed: ${error.message}. Retrying in 5 seconds...`);
-                await new Promise(resolve => setTimeout(resolve, 5000));
+                console.warn(`⚠️ Attempt ${attempt} failed: ${error.message}. Retrying...`);
+                await new Promise(resolve => setTimeout(resolve, 4000));
               }
             }
 
             if (!success) {
-               throw new Error("Failed to generate code after maximum retries due to server overload.");
+               throw new Error("❌ Failed to generate code after maximum retries due to server overload.");
             }
             
             let generatedCode = data.candidates[0].content.parts[0].text;
             
-            // Clean-up any unexpected markdown formatting
+            // Clean-up any unexpected markdown formatting perfectly
             generatedCode = generatedCode.replace(/^```[a-zA-Z0-9+#-]*\s*\n/i, '');
-            generatedCode = generatedCode.replace(/\n```\s*$/i, '');
+            generatedCode = generatedCode.replace(/\n
+```\s*$/i, '');
             generatedCode = generatedCode.trim();
 
             // File create step
             fs.writeFileSync(fileName, generatedCode);
             console.log(`✅ Successfully created file: ${fileName}`);
 
-            // Comment on github issue
-            await github.rest.issues.createComment({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              issue_number: context.issue.number,
-              body: `✅ **Magic successful!** Frontier Model **Gemini 3.5 Flash** apnar jonno \`${fileName}\` file ti successfully high-quality formatting e generate kore repository te add kore diyeche. Code tab e check korun!`
-            });
+            // Properly formatted Issue Comment
+            if (issueNumber) {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: issueNumber,
+                body: `✅ **Success!** \n\nFile \`${fileName}\` has been generated accurately using \`${modelName}\` and automatically pushed to the repository.`
+              });
+            }
 
-      - name: Commit and Push changes
-        uses: stefanzweifel/git-auto-commit-action@v5
-        with:
-          commit_message: "Auto-generated file by Gemini 3.5 Flash [skip ci]"
+      - name: Commit and Push Changes
+        run: |
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add .
+          
+          # Check if there are any changes to commit to avoid workflow crash
+          if git diff --staged --quiet; then
+            echo "No new changes to commit."
+          else
+            git commit -m "🚀 Auto-generated code via Gemini 3.5 Flash API"
+            git push
+          fi
