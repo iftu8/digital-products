@@ -17,7 +17,6 @@ on:
 jobs:
   generate-code:
     runs-on: ubuntu-latest
-    # Fix for Skipped Issue: Runs if manually triggered OR if issue title matches 'create-file:'
     if: github.event_name == 'workflow_dispatch' || (github.event_name == 'issues' && startsWith(github.event.issue.title, 'create-file:'))
     permissions:
       issues: write
@@ -36,7 +35,6 @@ jobs:
             
             let issueTitle, issueBody, issueNumber;
             
-            // Checking if triggered manually or via Issue
             if (context.eventName === 'workflow_dispatch') {
               issueTitle = `create-file: ${context.payload.inputs?.filename || 'manual_file.txt'}`;
               issueBody = context.payload.inputs?.prompt || "Write the code for this request.";
@@ -49,7 +47,6 @@ jobs:
             
             const fileName = issueTitle.replace('create-file:', '').trim();
             
-            // Set strictly to Gemini 3.5 Flash as requested
             const modelName = "gemini-3.5-flash"; 
             const url = `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent?key=${process.env.GEMINI_API_KEY}`;
             
@@ -64,14 +61,14 @@ jobs:
                 Request: ${issueBody}` }]
               }],
               generationConfig: {
-                maxOutputTokens: 8192, // Fix for max output problem
+                maxOutputTokens: 8192,
                 temperature: 0.2 
               }
             };
 
             let data;
             let success = false;
-            const maxRetries = 4; // Better retry mechanism
+            const maxRetries = 4;
 
             for (let attempt = 1; attempt <= maxRetries; attempt++) {
               try {
@@ -84,9 +81,8 @@ jobs:
 
                 data = await response.json();
                 
-                // Advanced 503/429 server error handling securely
                 if (response.status === 503 || response.status === 429) {
-                  const waitTime = attempt * 5000; // Waits 5s, 10s, 15s...
+                  const waitTime = attempt * 5000;
                   console.warn(`⚠️ Server overloaded (${response.status}). Waiting ${waitTime/1000}s before retry...`);
                   await new Promise(resolve => setTimeout(resolve, waitTime));
                   continue; 
@@ -118,17 +114,13 @@ jobs:
             
             let generatedCode = data.candidates[0].content.parts[0].text;
             
-            // Clean-up any unexpected markdown formatting perfectly
             generatedCode = generatedCode.replace(/^```[a-zA-Z0-9+#-]*\s*\n/i, '');
-            generatedCode = generatedCode.replace(/\n
-```\s*$/i, '');
+            generatedCode = generatedCode.replace(/\n```\s*$/i, '');
             generatedCode = generatedCode.trim();
 
-            // File create step
             fs.writeFileSync(fileName, generatedCode);
             console.log(`✅ Successfully created file: ${fileName}`);
 
-            // Properly formatted Issue Comment
             if (issueNumber) {
               await github.rest.issues.createComment({
                 owner: context.repo.owner,
@@ -144,7 +136,6 @@ jobs:
           git config --global user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add .
           
-          # Check if there are any changes to commit to avoid workflow crash
           if git diff --staged --quiet; then
             echo "No new changes to commit."
           else
