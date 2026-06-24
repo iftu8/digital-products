@@ -58,14 +58,19 @@ jobs:
                 Request: ${issueBody}` }]
               }],
               generationConfig: {
-                maxOutputTokens: 8192,
                 temperature: 0.2 
+                // Removed maxOutputTokens to prevent API crashes on older or different models
               }
             };
 
-            // 🌟 INDESTRUCTIBLE MULTI-MODEL FALLBACK SYSTEM 🌟
-            // It will try highly stable models sequentially to completely avoid 503 Server Overload crashes.
-            const modelsToTry = ["gemini-1.5-flash", "gemini-1.5-pro", "gemini-pro"];
+            // 🌟 UPDATED INDESTRUCTIBLE MULTI-MODEL FALLBACK 🌟
+            // Added exactly versioned models to bypass the 404 "Not Found" Google API error
+            const modelsToTry = [
+              "gemini-1.5-flash-latest",
+              "gemini-1.5-flash-001",
+              "gemini-1.0-pro-latest",
+              "gemini-1.0-pro"
+            ];
             
             let data;
             let success = false;
@@ -90,7 +95,6 @@ jobs:
 
                   data = await response.json();
                   
-                  // Wait longer (10s, 20s, 30s) if server is genuinely overloaded
                   if (response.status === 503 || response.status === 429) {
                     const waitTime = attempt * 10000; 
                     console.warn(`⚠️ Server overloaded (${response.status}). Waiting ${waitTime/1000}s...`);
@@ -98,10 +102,9 @@ jobs:
                     continue; 
                   }
 
-                  // If a specific model is totally blocked or broken, break retry loop and switch model
                   if (!response.ok) {
                     console.error(`❌ API Error ${response.status} with ${modelName}: ${data.error?.message || 'Unknown'}`);
-                    break; 
+                    break; // Move immediately to the next fallback model
                   }
 
                   if (!data.candidates || !data.candidates[0]?.content?.parts?.[0]?.text) {
@@ -110,7 +113,7 @@ jobs:
                   
                   success = true;
                   successfulModel = modelName;
-                  break; // Success! Break the retry loop
+                  break; 
 
                 } catch (error) {
                   console.warn(`⚠️ Error on attempt ${attempt} with ${modelName}: ${error.message}`);
@@ -124,7 +127,7 @@ jobs:
             }
 
             if (!success) {
-               throw new Error("🚨 FATAL ERROR: All models and retries failed due to Google API overload. Please try again later.");
+               throw new Error("🚨 FATAL ERROR: All models and retries failed. Please check your API key permissions.");
             }
             
             let generatedCode = data.candidates[0].content.parts[0].text;
@@ -141,7 +144,7 @@ jobs:
                 owner: context.repo.owner,
                 repo: context.repo.repo,
                 issue_number: issueNumber,
-                body: `✅ **Success!** \n\nFile \`${fileName}\` has been generated accurately using \`${successfulModel}\` (Fallback System) and automatically pushed to the repository.`
+                body: `✅ **Success!** \n\nFile \`${fileName}\` has been generated accurately using \`${successfulModel}\` and automatically pushed to the repository.`
               });
             }
 
