@@ -25,7 +25,7 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Generate Code with Gemini 3.5 Flash
+      - name: Generate Code with Gemini API (Auto-Fallback)
         uses: actions/github-script@v7
         env:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
@@ -47,9 +47,6 @@ jobs:
             
             const fileName = issueTitle.replace('create-file:', '').trim();
             
-            const modelName = "gemini-3.5-flash"; 
-            const url = `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent?key=${process.env.GEMINI_API_KEY}`;
-            
             const payload = {
               contents: [{
                 parts: [{ text: `You are an expert production-grade software engineer. Write the exact source code for this request. 
@@ -66,50 +63,68 @@ jobs:
               }
             };
 
+            // 🌟 INDESTRUCTIBLE MULTI-MODEL FALLBACK SYSTEM 🌟
+            // It will try highly stable models sequentially to completely avoid 503 Server Overload crashes.
+            const modelsToTry = ["gemini-1.5-flash", "gemini-1.5-pro", "gemini-pro"];
+            
             let data;
             let success = false;
-            const maxRetries = 4;
+            let successfulModel = "";
 
-            for (let attempt = 1; attempt <= maxRetries; attempt++) {
-              try {
-                console.log(`Attempt ${attempt}: Calling ${modelName} API for ${fileName}...`);
-                const response = await fetch(url, {
-                  method: 'POST',
-                  headers: { 'Content-Type': 'application/json' },
-                  body: JSON.stringify(payload)
-                });
+            for (const modelName of modelsToTry) {
+              if (success) break;
+              
+              console.log(`\n🔄 Initializing model: ${modelName}...`);
+              const url = `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent?key=${process.env.GEMINI_API_KEY}`;
+              
+              const maxRetries = 3;
+              
+              for (let attempt = 1; attempt <= maxRetries; attempt++) {
+                try {
+                  console.log(`Attempt ${attempt} for ${modelName}...`);
+                  const response = await fetch(url, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload)
+                  });
 
-                data = await response.json();
-                
-                if (response.status === 503 || response.status === 429) {
-                  const waitTime = attempt * 5000;
-                  console.warn(`⚠️ Server overloaded (${response.status}). Waiting ${waitTime/1000}s before retry...`);
-                  await new Promise(resolve => setTimeout(resolve, waitTime));
-                  continue; 
+                  data = await response.json();
+                  
+                  // Wait longer (10s, 20s, 30s) if server is genuinely overloaded
+                  if (response.status === 503 || response.status === 429) {
+                    const waitTime = attempt * 10000; 
+                    console.warn(`⚠️ Server overloaded (${response.status}). Waiting ${waitTime/1000}s...`);
+                    await new Promise(resolve => setTimeout(resolve, waitTime));
+                    continue; 
+                  }
+
+                  // If a specific model is totally blocked or broken, break retry loop and switch model
+                  if (!response.ok) {
+                    console.error(`❌ API Error ${response.status} with ${modelName}: ${data.error?.message || 'Unknown'}`);
+                    break; 
+                  }
+
+                  if (!data.candidates || !data.candidates[0]?.content?.parts?.[0]?.text) {
+                    throw new Error("API did not return text. Check safety settings.");
+                  }
+                  
+                  success = true;
+                  successfulModel = modelName;
+                  break; // Success! Break the retry loop
+
+                } catch (error) {
+                  console.warn(`⚠️ Error on attempt ${attempt} with ${modelName}: ${error.message}`);
+                  if (attempt === maxRetries) {
+                    console.log(`⏭️ Moving to next fallback model...`);
+                  } else {
+                    await new Promise(resolve => setTimeout(resolve, 5000));
+                  }
                 }
-
-                if (!response.ok) {
-                  throw new Error(`API Error ${response.status}: ${data.error?.message || 'Unknown'}`);
-                }
-
-                if (!data.candidates || !data.candidates[0]?.content?.parts?.[0]?.text) {
-                  throw new Error("API did not return text. Check prompt or safety settings.");
-                }
-                
-                success = true;
-                break;
-
-              } catch (error) {
-                if (attempt === maxRetries) {
-                  throw error;
-                }
-                console.warn(`⚠️ Attempt ${attempt} failed: ${error.message}. Retrying...`);
-                await new Promise(resolve => setTimeout(resolve, 4000));
               }
             }
 
             if (!success) {
-               throw new Error("❌ Failed to generate code after maximum retries due to server overload.");
+               throw new Error("🚨 FATAL ERROR: All models and retries failed due to Google API overload. Please try again later.");
             }
             
             let generatedCode = data.candidates[0].content.parts[0].text;
@@ -119,14 +134,14 @@ jobs:
             generatedCode = generatedCode.trim();
 
             fs.writeFileSync(fileName, generatedCode);
-            console.log(`✅ Successfully created file: ${fileName}`);
+            console.log(`✅ Successfully created file: ${fileName} using ${successfulModel}`);
 
             if (issueNumber) {
               await github.rest.issues.createComment({
                 owner: context.repo.owner,
                 repo: context.repo.repo,
                 issue_number: issueNumber,
-                body: `✅ **Success!** \n\nFile \`${fileName}\` has been generated accurately using \`${modelName}\` and automatically pushed to the repository.`
+                body: `✅ **Success!** \n\nFile \`${fileName}\` has been generated accurately using \`${successfulModel}\` (Fallback System) and automatically pushed to the repository.`
               });
             }
 
@@ -139,6 +154,6 @@ jobs:
           if git diff --staged --quiet; then
             echo "No new changes to commit."
           else
-            git commit -m "🚀 Auto-generated code via Gemini 3.5 Flash API"
+            git commit -m "🚀 Auto-generated code via robust Gemini API"
             git push
           fi
