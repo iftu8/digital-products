@@ -24,6 +24,11 @@ jobs:
           script: |
             const fs = require('fs');
             
+            // 🛑 Early API Key Check - Key না থাকলে প্রথমেই আটকে দেবে
+            if (!process.env.GEMINI_API_KEY) {
+              throw new Error("🚨 FATAL ERROR: GEMINI_API_KEY is missing! Please add it in GitHub Settings > Secrets and variables > Actions.");
+            }
+            
             let issueTitle, issueBody, issueNumber;
             
             if (context.eventName === 'workflow_dispatch') {
@@ -42,7 +47,6 @@ jobs:
             
             console.log(`Target filename: ${fileName}`);
             
-            // maxOutputTokens remove kora hoyeche jate sob Pro model-e support kore ar error na dey
             const payload = {
               contents: [{
                 parts: [{ text: `You are an expert author, researcher, and content creator. The user wants you to write a complete, professional, and highly detailed digital product/e-book based on the following request.
@@ -59,13 +63,11 @@ jobs:
               }
             };
 
-            // 🔥 A TO Z BULLETPROOF FALLBACK ARRAY 🔥
-            // Ekhane Pro model theke shuru kore shob universal model dewa holo
             const modelsToTry = [
               "gemini-1.5-pro",
               "gemini-1.5-pro-latest",
               "gemini-1.5-flash",
-              "gemini-pro", // Universal fallback, eta kokhonoi 404 hobe na
+              "gemini-pro", 
               "gemini-1.0-pro"
             ];
             
@@ -101,7 +103,7 @@ jobs:
 
                   if (!response.ok) {
                     console.error(`❌ API Error ${response.status} with ${modelName}: ${data.error?.message || 'Unknown'}`);
-                    break; // Sathe sathe nicher model-e chole jabe, fail korbe na
+                    break; 
                   }
 
                   if (!data.candidates || !data.candidates[0]?.content?.parts?.[0]?.text) {
@@ -124,7 +126,7 @@ jobs:
             }
 
             if (!success) {
-               throw new Error("🚨 FATAL ERROR: All models and retries failed. Please check your API key permissions.");
+               throw new Error("🚨 FATAL ERROR: All models and retries failed. Please check your API key validity and permissions.");
             }
             
             let generatedContent = data.candidates[0].content.parts[0].text;
@@ -154,6 +156,6 @@ jobs:
           if git diff --staged --quiet; then
             echo "No new changes to commit."
           else
-            git commit -m "📚 Auto-generated Extended E-Book via Gemini Pro API"
+            git commit -m "📚 Auto-generated Extended E-Book via Gemini API"
             git push
           fi
