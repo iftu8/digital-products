@@ -16,7 +16,7 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Generate Extended E-Book with Gemini Pro
+      - name: Generate Extended E-Book with Gemini API
         uses: actions/github-script@v7
         env:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
@@ -24,7 +24,6 @@ jobs:
           script: |
             const fs = require('fs');
             
-            // 🛑 Early API Key Check - Key না থাকলে প্রথমেই আটকে দেবে
             if (!process.env.GEMINI_API_KEY) {
               throw new Error("🚨 FATAL ERROR: GEMINI_API_KEY is missing! Please add it in GitHub Settings > Secrets and variables > Actions.");
             }
@@ -63,25 +62,46 @@ jobs:
               }
             };
 
-            const modelsToTry = [
-              "gemini-1.5-pro",
-              "gemini-1.5-pro-latest",
-              "gemini-1.5-flash",
-              "gemini-pro", 
-              "gemini-1.0-pro"
-            ];
-            
+            // 🔥 STEP 1: Dynamically fetch available models for THIS specific API key! 🔥
+            console.log("🔍 Fetching available models for your API key...");
+            const modelsUrl = `https://generativelanguage.googleapis.com/v1beta/models?key=${process.env.GEMINI_API_KEY}`;
+            const modelsRes = await fetch(modelsUrl);
+            const modelsData = await modelsRes.json();
+
+            if (!modelsRes.ok) {
+              throw new Error(`🚨 API Key Error: Failed to list models. Error: ${modelsData.error?.message || 'Unknown'}. Please check if your API key is valid.`);
+            }
+
+            // Filter to find models that support content generation
+            let availableModels = modelsData.models
+              .filter(m => m.supportedGenerationMethods && m.supportedGenerationMethods.includes("generateContent") && m.name.includes("gemini"))
+              .map(m => m.name.replace('models/', ''));
+
+            console.log(`✅ Found ${availableModels.length} supported models:`, availableModels.join(', '));
+
+            if (availableModels.length === 0) {
+              throw new Error("🚨 FATAL ERROR: No compatible Gemini models found for your API key. Make sure you generated the key from Google AI Studio.");
+            }
+
+            // Prioritize Pro models first, then Flash
+            availableModels.sort((a, b) => {
+              if (a.includes('pro') && !b.includes('pro')) return -1;
+              if (b.includes('pro') && !a.includes('pro')) return 1;
+              return 0;
+            });
+
             let data;
             let success = false;
             let successfulModel = "";
 
-            for (const modelName of modelsToTry) {
+            // 🔥 STEP 2: Try models one by one based on what YOUR key actually supports
+            for (const modelName of availableModels) {
               if (success) break;
               
               console.log(`\n🔄 Initializing model: ${modelName}...`);
               const url = `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent?key=${process.env.GEMINI_API_KEY}`;
               
-              const maxRetries = 3; 
+              const maxRetries = 2; 
               
               for (let attempt = 1; attempt <= maxRetries; attempt++) {
                 try {
@@ -95,7 +115,7 @@ jobs:
                   data = await response.json();
                   
                   if (response.status === 503 || response.status === 429) {
-                    const waitTime = attempt * 15000; 
+                    const waitTime = attempt * 10000; 
                     console.warn(`⚠️ Server overloaded (${response.status}). Waiting ${waitTime/1000}s...`);
                     await new Promise(resolve => setTimeout(resolve, waitTime));
                     continue; 
@@ -117,16 +137,14 @@ jobs:
                 } catch (error) {
                   console.warn(`⚠️ Error on attempt ${attempt} with ${modelName}: ${error.message}`);
                   if (attempt === maxRetries) {
-                    console.log(`⏭️ Moving to next fallback model...`);
-                  } else {
-                    await new Promise(resolve => setTimeout(resolve, 5000));
+                    console.log(`⏭️ Moving to next model...`);
                   }
                 }
               }
             }
 
             if (!success) {
-               throw new Error("🚨 FATAL ERROR: All models and retries failed. Please check your API key validity and permissions.");
+               throw new Error("🚨 FATAL ERROR: All compatible models failed to generate content.");
             }
             
             let generatedContent = data.candidates[0].content.parts[0].text;
