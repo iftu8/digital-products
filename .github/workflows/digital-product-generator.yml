@@ -2,13 +2,13 @@ name: Advanced Digital Product Generator
 
 on:
   issues:
-    types: [opened]
+    types: [opened, edited]
+  workflow_dispatch:
 
 jobs:
   build-product:
     runs-on: ubuntu-latest
-    # ইস্যুর নাম 'build-product:' দিয়ে শুরু হলে তবেই এই কাজ শুরু হবে
-    if: startsWith(github.event.issue.title, 'build-product:')
+    # 🚨 Ekhane kono "if" condition nai. Issue open korlei 100% run korbe, KONO SKIP HOBE NA!
     permissions:
       issues: write
       contents: write
@@ -16,76 +16,139 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Generate Multi-file Project with AI
+      - name: Generate Extended E-Book with Gemini 1.5 Pro
         uses: actions/github-script@v7
         env:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
         with:
           script: |
             const fs = require('fs');
-            const path = require('path');
-            const issueTitle = context.payload.issue.title;
-            const issueBody = context.payload.issue.body || "Create an advanced digital product.";
             
-            // প্রজেক্টের ফোল্ডারের নাম ইস্যুর টাইটেল থেকে নেওয়া
-            const projectName = issueTitle.replace('build-product:', '').trim().replace(/[^a-zA-Z0-9-_]/g, '_');
-
-            // আপনার রিকোয়েস্ট অনুযায়ী Gemini 3.5 মডেল
-            const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash:generateContent?key=${process.env.GEMINI_API_KEY}`;
+            let issueTitle, issueBody, issueNumber;
             
-            const prompt = `You are an Expert Full-Stack Developer. The user wants an advanced extended digital product. 
-            Requirements: ${issueBody}.
-            You must use HTML, CSS, JavaScript, and Ruby.
-            CRITICAL INSTRUCTION: You MUST output ONLY a valid JSON array of objects. Do not write any markdown formatting, no explanations, no \`\`\`json blocks. Just the raw JSON.
-            Format exactly like this: [{"filename": "index.html", "content": "html code..."}, {"filename": "css/style.css", "content": "css code..."}, {"filename": "js/app.js", "content": "js code..."}, {"filename": "backend.rb", "content": "ruby code..."}]`;
-
-            const response = await fetch(url, {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({
-                contents: [{ parts: [{ text: prompt }] }]
-              })
-            });
-
-            const data = await response.json();
-            if (!response.ok) throw new Error("API Error: " + JSON.stringify(data));
-            
-            let outputText = data.candidates[0].content.parts[0].text;
-            
-            // AI যদি ভুল করে Markdown বসিয়ে দেয়, সেটা ক্লিন করা
-            outputText = outputText.replace(/^```json/i, '').replace(/^```/i, '').replace(/```$/i, '').trim();
-            
-            const files = JSON.parse(outputText);
-
-            // মেইন ফোল্ডার তৈরি
-            if (!fs.existsSync(projectName)){
-                fs.mkdirSync(projectName, { recursive: true });
+            if (context.eventName === 'workflow_dispatch') {
+              issueTitle = "Manual Generated Book";
+              issueBody = "Write a comprehensive guide on AI.";
+              issueNumber = null;
+            } else {
+              issueTitle = context.payload.issue.title;
+              issueBody = context.payload.issue.body || "Write the complete e-book based on the title.";
+              issueNumber = context.payload.issue.number;
             }
-
-            let generatedFilesList = "";
-
-            // ফোল্ডার অনুযায়ী সবগুলো ফাইল তৈরি করা
-            for (const file of files) {
-              const fullPath = path.join(projectName, file.filename);
-              const dir = path.dirname(fullPath);
-              
-              if (!fs.existsSync(dir)){
-                fs.mkdirSync(dir, { recursive: true });
+            
+            let cleanTitle = issueTitle.replace(/^Generate(.*?):/i, '').replace(/^Create(.*?):/i, '').trim();
+            if (!cleanTitle) cleanTitle = 'digital-product-' + Date.now();
+            const fileName = cleanTitle.toLowerCase().replace(/[^a-z0-9]+/g, '-') + '.md';
+            
+            console.log(`Target filename: ${fileName}`);
+            
+            const payload = {
+              contents: [{
+                parts: [{ text: `You are an expert author, researcher, and content creator. The user wants you to write a complete, professional, and highly detailed digital product/e-book.
+                
+                CRITICAL RULES:
+                1. Write in clear, well-structured Markdown format. Use headings (#, ##, ###), bullet points, and bold text to make it look like a real e-book.
+                2. Make it EXTENSIVE and detailed. Expand on topics deeply. Do not write short summaries.
+                3. Return ONLY the raw markdown text of the book. Do not include introductory chatter or outro text.
+                
+                User Request: ${issueBody}` }]
+              }],
+              generationConfig: {
+                temperature: 0.7 
               }
+            };
+
+            // 🔥 GEMINI 1.5 PRO First, with Ultimate Fallback 🔥
+            const modelsToTry = [
+              "gemini-1.5-pro",
+              "gemini-1.5-pro-latest",
+              "gemini-1.5-flash",
+              "gemini-pro"
+            ];
+            
+            let data;
+            let success = false;
+            let successfulModel = "";
+
+            for (const modelName of modelsToTry) {
+              if (success) break;
               
-              fs.writeFileSync(fullPath, file.content);
-              generatedFilesList += `- \`${fullPath}\`\n`;
+              console.log(`\n🔄 Initializing model: ${modelName}...`);
+              const url = `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent?key=${process.env.GEMINI_API_KEY}`;
+              
+              const maxRetries = 3; 
+              
+              for (let attempt = 1; attempt <= maxRetries; attempt++) {
+                try {
+                  console.log(`Attempt ${attempt} for ${modelName}...`);
+                  const response = await fetch(url, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload)
+                  });
+
+                  data = await response.json();
+                  
+                  if (response.status === 503 || response.status === 429) {
+                    const waitTime = attempt * 15000; 
+                    console.warn(`⚠️ Server overloaded. Waiting ${waitTime/1000}s...`);
+                    await new Promise(resolve => setTimeout(resolve, waitTime));
+                    continue; 
+                  }
+
+                  if (!response.ok) {
+                    console.error(`❌ API Error ${response.status} with ${modelName}`);
+                    break; 
+                  }
+
+                  if (!data.candidates || !data.candidates[0]?.content?.parts?.[0]?.text) {
+                    throw new Error("API did not return text.");
+                  }
+                  
+                  success = true;
+                  successfulModel = modelName;
+                  break; 
+
+                } catch (error) {
+                  console.warn(`⚠️ Error: ${error.message}`);
+                  if (attempt !== maxRetries) {
+                    await new Promise(resolve => setTimeout(resolve, 5000));
+                  }
+                }
+              }
             }
 
-            // গিটহাবে সাকসেস মেসেজ দেওয়া
-            await github.rest.issues.createComment({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              issue_number: context.issue.number,
-              body: `🚀 **Digital Product Generated Successfully!**\n\nAI apnar requriements onujayi **${projectName}** namer ekta folder e nicher file gulo toiri koreche:\n\n${generatedFilesList}\n\nCode tab e giye check korun!`
-            });
+            if (!success) {
+               throw new Error("🚨 FATAL ERROR: All models failed. Please check your API key.");
+            }
+            
+            let generatedContent = data.candidates[0].content.parts[0].text;
+            
+            generatedContent = generatedContent.replace(/^```markdown\s*\n/i, '');
+            generatedContent = generatedContent.replace(/\n```\s*$/i, '');
+            generatedContent = generatedContent.trim();
 
-      - name: Commit and Push changes
-        uses: stefanzweifel/git-auto-commit-action@v5
-        with:
-          commit_message: "Auto-generated advanced digital product by AI"
+            fs.writeFileSync(fileName, generatedContent);
+            console.log(`✅ Successfully created file: ${fileName} using ${successfulModel}`);
+
+            if (issueNumber) {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: issueNumber,
+                body: `✅ **Success!** \n\nYour comprehensive E-Book \`${fileName}\` has been created using \`${successfulModel}\` and successfully pushed to the repository.`
+              });
+            }
+
+      - name: Commit and Push E-Book
+        run: |
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add .
+          
+          if git diff --staged --quiet; then
+            echo "No new changes to commit."
+          else
+            git commit -m "📚 Auto-generated Extended E-Book via Gemini 1.5 Pro"
+            git push
+          fi
