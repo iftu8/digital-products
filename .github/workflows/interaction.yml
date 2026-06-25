@@ -8,7 +8,6 @@ on:
 jobs:
   build-product:
     runs-on: ubuntu-latest
-    # Title e 'Generate' ba 'create' thaklei eta run hobe, skip hobe na
     if: github.event_name == 'workflow_dispatch' || (github.event_name == 'issues' && (contains(github.event.issue.title, 'Generate') || contains(github.event.issue.title, 'Create')))
     permissions:
       issues: write
@@ -17,7 +16,7 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Generate E-Book with Gemini 1.5 Flash
+      - name: Generate Extended E-Book with Gemini Pro
         uses: actions/github-script@v7
         env:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
@@ -37,13 +36,13 @@ jobs:
               issueNumber = context.payload.issue.number;
             }
             
-            // Automatically clean the title to make a perfect filename (e.g., my-awesome-book.md)
             let cleanTitle = issueTitle.replace(/^Generate(.*?):/i, '').replace(/^Create(.*?):/i, '').trim();
             if (!cleanTitle) cleanTitle = 'digital-product-' + Date.now();
             const fileName = cleanTitle.toLowerCase().replace(/[^a-z0-9]+/g, '-') + '.md';
             
             console.log(`Target filename: ${fileName}`);
             
+            // maxOutputTokens remove kora hoyeche jate sob Pro model-e support kore ar error na dey
             const payload = {
               contents: [{
                 parts: [{ text: `You are an expert author, researcher, and content creator. The user wants you to write a complete, professional, and highly detailed digital product/e-book based on the following request.
@@ -56,16 +55,18 @@ jobs:
                 User Request: ${issueBody}` }]
               }],
               generationConfig: {
-                temperature: 0.7, // Good for creative/ebook writing
-                maxOutputTokens: 8192 // Maximum output for large e-books
+                temperature: 0.7 
               }
             };
 
-            // Using the latest and most stable models for long context
+            // 🔥 A TO Z BULLETPROOF FALLBACK ARRAY 🔥
+            // Ekhane Pro model theke shuru kore shob universal model dewa holo
             const modelsToTry = [
-              "gemini-1.5-flash",
               "gemini-1.5-pro",
-              "gemini-1.5-flash-latest"
+              "gemini-1.5-pro-latest",
+              "gemini-1.5-flash",
+              "gemini-pro", // Universal fallback, eta kokhonoi 404 hobe na
+              "gemini-1.0-pro"
             ];
             
             let data;
@@ -78,7 +79,7 @@ jobs:
               console.log(`\n🔄 Initializing model: ${modelName}...`);
               const url = `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent?key=${process.env.GEMINI_API_KEY}`;
               
-              const maxRetries = 4; // High retry count for heavy server loads
+              const maxRetries = 3; 
               
               for (let attempt = 1; attempt <= maxRetries; attempt++) {
                 try {
@@ -92,7 +93,7 @@ jobs:
                   data = await response.json();
                   
                   if (response.status === 503 || response.status === 429) {
-                    const waitTime = attempt * 15000; // Waits longer if server is busy
+                    const waitTime = attempt * 15000; 
                     console.warn(`⚠️ Server overloaded (${response.status}). Waiting ${waitTime/1000}s...`);
                     await new Promise(resolve => setTimeout(resolve, waitTime));
                     continue; 
@@ -100,11 +101,11 @@ jobs:
 
                   if (!response.ok) {
                     console.error(`❌ API Error ${response.status} with ${modelName}: ${data.error?.message || 'Unknown'}`);
-                    break; 
+                    break; // Sathe sathe nicher model-e chole jabe, fail korbe na
                   }
 
                   if (!data.candidates || !data.candidates[0]?.content?.parts?.[0]?.text) {
-                    throw new Error("API did not return text. Check safety settings.");
+                    throw new Error("API did not return text.");
                   }
                   
                   success = true;
@@ -116,7 +117,7 @@ jobs:
                   if (attempt === maxRetries) {
                     console.log(`⏭️ Moving to next fallback model...`);
                   } else {
-                    await new Promise(resolve => setTimeout(resolve, 8000));
+                    await new Promise(resolve => setTimeout(resolve, 5000));
                   }
                 }
               }
@@ -128,7 +129,6 @@ jobs:
             
             let generatedContent = data.candidates[0].content.parts[0].text;
             
-            // Clean up unnecessary markdown blocks if AI accidentally wraps the whole thing
             generatedContent = generatedContent.replace(/^```markdown\s*\n/i, '');
             generatedContent = generatedContent.replace(/\n```\s*$/i, '');
             generatedContent = generatedContent.trim();
@@ -141,7 +141,7 @@ jobs:
                 owner: context.repo.owner,
                 repo: context.repo.repo,
                 issue_number: issueNumber,
-                body: `✅ **Digital Product Generated Successfully!** \n\nYour file \`${fileName}\` has been created using \`${successfulModel}\` and pushed to the repository. It is ready for download/use!`
+                body: `✅ **Extended Digital Product Generated Successfully!** \n\nYour comprehensive file \`${fileName}\` has been carefully created using \`${successfulModel}\` and pushed to the repository.`
               });
             }
 
@@ -154,6 +154,6 @@ jobs:
           if git diff --staged --quiet; then
             echo "No new changes to commit."
           else
-            git commit -m "📚 Auto-generated E-Book via Gemini AI"
+            git commit -m "📚 Auto-generated Extended E-Book via Gemini Pro API"
             git push
           fi
