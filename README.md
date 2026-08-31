@@ -1,108 +1,94 @@
 <div align="center">
 
-<img src="https://capsule-render.vercel.app/api?type=waving&color=FF2052&height=250&section=header&text=Iftekhar%20Ahmmed%20Chowdhury&fontSize=50&fontColor=ffffff&animation=twinkling&fontAlignY=35&desc=AI%20Systems%20Architect%20%7C%20Ruby%20%26%20Python%20Engineer&descAlignY=55&descAlign=62" width="100%" />
+<img src="https://capsule-render.vercel.app/api?type=waving&color=FF2052&height=250&section=header&text=Iftekhar%20Ahmmed%20Chowdhury&fontSize=45&fontColor=ffffff&animation=twinkling&fontAlignY=35&desc=AI%20Systems%20Architect%20%7C%20Digital%20Product%20Creator&descAlignY=55&descAlign=62" width="100%" alt="Header" />
 
 <br><br>
 
-<!-- Dynamic Status Badges from Screenshot -->
-![Build](https://img.shields.io/badge/BUILD-PASSING-00FF9D?style=for-the-badge&labelColor=141321)
-![Ruby](https://img.shields.io/badge/RUBY-3.3%2B-FF2052?style=for-the-badge&labelColor=141321)
-![Ecosystem](https://img.shields.io/badge/ECOSYSTEM-OPTIMIZED-00E5FF?style=for-the-badge&labelColor=141321)
-![Pings](https://img.shields.io/badge/CORE_PINGS-169-FF2052?style=for-the-badge&labelColor=141321)
+[![Typing SVG](https://readme-typing-svg.demolab.com?font=Fira+Code&weight=600&size=22&pause=1000&color=00E5FF&center=true&vCenter=true&width=850&lines=Architecting+Zero-Trust+AI+Ecosystems;Generating+Premium+Enterprise+E-Books+%26+SOPs;Building+High-Concurrency+Ruby+%26+Python+Backends;Welcome+to+my+Digital+Command+Center!)](https://git.io/typing-svg)
 
 <br>
 
-[![Typing SVG](https://readme-typing-svg.demolab.com?font=Fira+Code&weight=600&size=22&pause=1000&color=FF2052&center=true&vCenter=true&width=850&lines=%5B%E2%9C%93%5D+Initializing+Omniverse+AGI+Kernel...;%5B%E2%9C%93%5D+Deploying+Nexus+Pro+SaaS+Engine...;%5B%E2%9C%93%5D+Compiling+Ruby+%26+Python+Neural+Networks...;%5B%E2%9C%93%5D+System+Executing.+Ready+for+Scale.)](https://git.io/typing-svg)
-
-<br>
-
-<!-- The Iconic Cat GIF from your Digital Products Repo -->
-<img src="https://media.giphy.com/media/v1.Y2lkPTc5MGI3NjExMmZkYjVkZGMzYzlkMmI5NjI5MzJjOTZjOTc2ZmRiZjFhNjY0NTJiYiZlcD12MV9pbnRlcm5hbF9naWZzX3NlYXJjaCZjdD1n/LmNwrBhejkK9EFP504/giphy.gif" width="600" style="border-radius: 15px; border: 2px solid #FF2052; box-shadow: 0px 0px 30px rgba(255, 32, 82, 0.4);" alt="Executing Code">
-
-<br><br>
-
-### ⚡ *"Engineering intelligent digital ecosystems, predictive neural models, and high-concurrency automated workflows."*
+![Uptime](https://img.shields.io/badge/System_Uptime-99.99%25-00FF9D?style=for-the-badge&logo=dependabot&logoColor=white&labelColor=141321)
+![Products](https://img.shields.io/badge/Premium_Assets-Deployed-FF2052?style=for-the-badge&logo=githubactions&logoColor=white&labelColor=141321)
+![Security](https://img.shields.io/badge/Zero--Trust-Verified-00E5FF?style=for-the-badge&logo=cloudflare&logoColor=white&labelColor=141321)
 
 </div>
 
 ---
 
-## 👨‍💻 𝐀𝐛𝐨𝐮𝐭 𝐌𝐞
-Welcome to my digital command center. I specialize in bridging the gap between high-performance web backends and advanced artificial intelligence kernels. My focus revolves around building autonomous systems, architecting SaaS engines, and deploying seamless automated workflows.
+## 👨‍💻 𝐀𝐛𝐨𝐮𝐭 𝐌𝐲 𝐀𝐫𝐜𝐡𝐢𝐭𝐞𝐜𝐭𝐮𝐫𝐞
+I am a DevSecOps & AI Architect specializing in bridging the gap between high-performance web backends and advanced artificial intelligence kernels. My core ecosystem revolves around automating complex workflows and synthesizing **Premium Digital Products, Enterprise E-Books, and Standard Operating Procedures (SOPs)**.
 
-*   🧠 **Core Focus:** Artificial General Intelligence (AGI) Architectures, Neural Predictive Models, and Workflow Automation (Make).
-*   🛠️ **Current Arsenal:** Developing advanced digital products using Ruby, Python, and robust API integrations.
-*   🚀 **Mission:** Transforming complex logic into elegant, scalable, and secure digital infrastructure.
+* 🧠 **Core Focus:** Artificial General Intelligence (AGI) Architectures, Neural Predictive Models, and Fully Homomorphic Encryption (FHE).
+* 📚 **Digital Assets:** Creator of exclusive, high-value technical masterclasses and system design blueprints.
+* 🚀 **Mission:** Transforming complex logic into elegant, scalable, and secure digital infrastructure for global enterprises.
 
 ---
 
-## 🌌 𝐓𝐡𝐞 `𝐝𝐢𝐠𝐢𝐭𝐚𝐥-𝐩𝐫𝐨𝐝𝐮𝐜𝐭𝐬` 𝐄𝐜𝐨𝐬𝐲𝐬𝐭𝐞𝐦
-A glimpse into the high-end digital infrastructure and AI modules currently deployed in my primary repository:
+## 💎 𝐏𝐫𝐞𝐦𝐢𝐮𝐦 𝐃𝐢𝐠𝐢𝐭𝐚𝐥 𝐏𝐫𝐨𝐝𝐮𝐜𝐭𝐬 & 𝐌𝐚𝐬𝐭𝐞𝐫𝐜𝐥𝐚𝐬𝐬𝐞𝐬
+My repository `digital-products` houses a vast collection of auto-generated, high-value technical literature and system engines. Here are the core pillars of my digital ecosystem:
 
-| Module / Component | Language | Core Functionality | Status |
+| 📂 Asset Category | ⚙️ Core Technology | 📊 Market Value Proposition | Status |
 | :--- | :---: | :--- | :---: |
-| **`NEXUS_PRO_SAAS_ENGINE`** | `Ruby` | Core infrastructure for scalable SaaS platforms. | `[ 🟢 ONLINE ]` |
-| **`OMNIVERSE_AGI_SENTIENCE_KERNEL`** | `Core` | Self-awareness modeling and AGI operational kernel. | `[ 🧠 ACTIVE ]` |
-| **`XENON_QUANTUM_NEURAL_CORE`** | `Python` | Advanced predictive neural network processing. | `[ 🟣 DEPLOYED ]` |
-| **`RUBY_AI_ENGINE`** | `Ruby` | Intelligent execution with strict license verification. | `[ 🔐 SECURE ]` |
-| **`TITAN_AGI_INTELLIGENCE`** | `Multi` | Auto-generated intelligence controller. | `[ ⚙️ EXECUTING ]` |
+| **`Enterprise E-Books`** | `Gemini AI API` | Deep-dive masterclasses on Cloud Native DevOps, AI Swarms, and LLM Engineering. | `[ 🟢 ONLINE ]` |
+| **`Technical SOPs`** | `Markdown / AI` | Step-by-step blueprints for zero-downtime migrations and infrastructure scaling. | `[ 📚 ACTIVE ]` |
+| **`NEXUS_PRO_SAAS_ENGINE`** | `Ruby on Rails` | High-throughput orchestration backend for SaaS platforms. | `[ 🚀 DEPLOYED ]` |
+| **`OMNIVERSE_AGI_KERNEL`** | `Python` | Predictive neural network models and self-awareness computing algorithms. | `[ 🧠 ACTIVE ]` |
+| **`ZERO_TRUST_AEGIS`** | `DevSecOps` | Impenetrable cryptographic middleware for AI API endpoints. | `[ 🔐 SECURE ]` |
 
 ---
 
-## 🛠️ 𝐓𝐞𝐜𝐡𝐧𝐨𝐥𝐨𝐠𝐲 & 𝐒𝐭𝐚𝐜𝐤
+## 📈 𝐑𝐞𝐚𝐥-𝐓𝐢𝐦𝐞 𝐄𝐧𝐠𝐢𝐧𝐞𝐞𝐫𝐢𝐧𝐠 𝐌𝐞𝐭𝐫𝐢𝐜𝐬
 
 <div align="center">
 
-> **Primary Languages & Backend Frameworks** <br>
-<a href="https://skillicons.dev"><img src="https://skillicons.dev/icons?i=ruby,py,js,html,css&theme=dark" /></a>
+<img src="https://github-readme-activity-graph.vercel.app/graph?username=iftu8&bg_color=141321&color=00E5FF&line=FF2052&point=FFFFFF&area=true&hide_border=true" width="100%" alt="Activity Graph" />
 
-> **Automation, DevOps & Database Systems** <br>
-<a href="https://skillicons.dev"><img src="https://skillicons.dev/icons?i=github,git,bash,linux,postgres,aws&theme=dark" /></a>
+<br><br>
 
-> **Development Tooling** <br>
-<a href="https://skillicons.dev"><img src="https://skillicons.dev/icons?i=vscode,neovim,copilot,android&theme=dark" /></a>
+<img src="https://github-readme-stats.vercel.app/api?username=iftu8&show_icons=true&theme=radical&hide_border=true&bg_color=141321&title_color=00E5FF&icon_color=FF2052&text_color=ffffff" height="190" alt="GitHub Stats" />
+<img src="https://github-readme-streak-stats.herokuapp.com/?user=iftu8&theme=radical&hide_border=true&background=141321&ring=FF2052&fire=00E5FF&currStreakLabel=FF2052&sideNums=ffffff&sideLabels=ffffff&dates=ffffff" height="190" alt="GitHub Streak" />
+
+<br><br>
+
+<img src="https://github-profile-trophy.vercel.app/?username=iftu8&theme=radical&no-frame=true&no-bg=true&margin-w=15" alt="GitHub Trophies" />
 
 </div>
 
 ---
 
-## 📊 𝐆𝐢𝐭𝐇𝐮𝐛 𝐓𝐞𝐥𝐞𝐦𝐞𝐭𝐫𝐲
+## 🛠️ 𝐓𝐞𝐜𝐡𝐧𝐨𝐥𝐨𝐠𝐲 & 𝐀𝐫𝐬𝐞𝐧𝐚𝐥
 
 <div align="center">
 
-<img src="https://github-readme-stats.vercel.app/api?username=iftu8&show_icons=true&theme=radical&hide_border=true&bg_color=141321&ring_color=FF2052" height="195" alt="GitHub Stats" />
-<img src="https://github-readme-streak-stats.herokuapp.com/?user=iftu8&theme=radical&hide_border=true&background=141321&ring=FF2052&fire=FF2052&currStreakLabel=FF2052" height="195" alt="GitHub Streak" />
+> **Primary Languages, Frameworks & AI Integration** <br>
+<a href="https://skillicons.dev"><img src="https://skillicons.dev/icons?i=ruby,py,js,html,css,rails,react&theme=dark" /></a>
 
-<br>
+> **Automation, DevOps, Security & Cloud** <br>
+<a href="https://skillicons.dev"><img src="https://skillicons.dev/icons?i=github,git,bash,linux,postgres,aws,docker&theme=dark" /></a>
 
-<img src="https://github-readme-stats.vercel.app/api/top-langs/?username=iftu8&layout=compact&theme=radical&hide_border=true&bg_color=141321&langs_count=5" alt="Top Languages" />
+> **Development Tooling & OS** <br>
+<a href="https://skillicons.dev"><img src="https://skillicons.dev/icons?i=vscode,neovim,copilot,android,ubuntu&theme=dark" /></a>
 
 </div>
 
 ---
 
-## 📬 𝐂𝐨𝐧𝐧𝐞𝐜𝐭 𝐖𝐢𝐭𝐡 𝐌𝐞
-Ready to collaborate on the next generation of digital products or discuss system architecture? Ping me on any of the secure channels below:
+## 📬 𝐂𝐨𝐧𝐧𝐞𝐜𝐭 𝐖𝐢𝐭𝐡 𝐌𝐞 (𝐂𝐨𝐦𝐦𝐚𝐧𝐝 𝐂𝐞𝐧𝐭𝐞𝐫)
+Ready to integrate premium digital products into your workflow or discuss high-scale system architecture? Initialize contact via secure channels:
 
 <div align="center">
 
 <br>
 
-<!-- Professional Contact Badges with Official Logos -->
 <a href="mailto:iftuuu69@gmail.com">
-  <img src="https://img.shields.io/badge/Gmail-D14836?style=for-the-badge&logo=gmail&logoColor=white" alt="Email" />
+  <img src="https://img.shields.io/badge/Encrypted_Comms-D14836?style=for-the-badge&logo=gmail&logoColor=white" alt="Email" />
 </a>
-
 <a href="https://www.linkedin.com/in/iftekhar-ahmed-chowdhury-aa432b416">
-  <img src="https://img.shields.io/badge/LinkedIn-0077B5?style=for-the-badge&logo=linkedin&logoColor=white" alt="LinkedIn" />
+  <img src="https://img.shields.io/badge/Professional_Network-0077B5?style=for-the-badge&logo=linkedin&logoColor=white" alt="LinkedIn" />
 </a>
-
-<a href="https://www.instagram.com/i_f_t_uu/">
-  <img src="https://img.shields.io/badge/Instagram-E4405F?style=for-the-badge&logo=instagram&logoColor=white" alt="Instagram" />
-</a>
-
 <a href="https://github.com/iftu8">
-  <img src="https://img.shields.io/badge/GitHub-141321?style=for-the-badge&logo=github&logoColor=white" alt="GitHub" />
+  <img src="https://img.shields.io/badge/Open_Source_Hub-141321?style=for-the-badge&logo=github&logoColor=white" alt="GitHub" />
 </a>
 
 <br><br>
